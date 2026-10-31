@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { authClient } from "./auth-client";
 import { primaryClass } from "./ui";
-const App = lazy(() => import("./App"));
+const Workspace = lazy(() => import("./Workspace"));
 export default function AuthGate() {
   const {
     data: session,
@@ -41,7 +41,7 @@ export default function AuthGate() {
           </div>
         }
       >
-        <App />
+        <Workspace key={session.user.id} />
       </Suspense>
     );
   return (

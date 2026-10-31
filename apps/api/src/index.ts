@@ -1,5 +1,6 @@
 import { config } from "dotenv";
 import { getAuth, type ApiEnv } from "./auth.js";
+import { preferenceRoutes } from "./preferences.js";
 import { readInsights } from "./services/insights.js";
 import { conversationRoutes } from "./conversations.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -60,6 +61,7 @@ app.use("/api/*", async (c, next) => {
   return next();
 });
 app.route("/api/conversations", conversationRoutes);
+app.route("/api/preferences", preferenceRoutes);
 
 function razorpayStatus() {
   const keyId = process.env.RAZORPAY_KEY_ID;

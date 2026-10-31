@@ -19,13 +19,14 @@ import {
   ListOrdered,
   Moon,
   Plus,
-  Sun,
+  Settings,
   LogOut,
   X,
 } from "lucide-react";
 import type {
   LedgerSummary,
   Transaction,
+  PreferredLanguage,
 } from "@munim/contracts";
 import { authClient } from "./auth-client";
 import { api, formatRupees, type ApiHealth } from "./api";
@@ -42,13 +43,15 @@ const loadRecord = () => import("./RecordView");
 const RecordView = lazy(loadRecord);
 const MemoryView = lazy(() => import("./MemoryView"));
 const TransactionsView = lazy(() => import("./TransactionsView"));
+const SettingsView = lazy(() => import("./SettingsView"));
 const InsightsView = lazy(() => import("./InsightsView"));
 type View =
   | "overview"
   | "transactions"
   | "insights"
   | "memory"
-  | "record";
+  | "record"
+  | "settings";
 const navigation = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
   { id: "transactions", label: "Transactions", Icon: ListOrdered },
@@ -67,7 +70,13 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   month: "short",
   year: "numeric",
 });
-export default function App() {
+export default function App({
+  language,
+  onLanguageChange,
+}: {
+  language: PreferredLanguage;
+  onLanguageChange: (language: PreferredLanguage) => Promise<void>;
+}) {
   const [view, setView] = useState<View>("overview");
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -280,6 +289,15 @@ export default function App() {
         <div className="mt-auto border-t border-line pt-3">
           <button
             type="button"
+            aria-current={view === "settings" ? "page" : undefined}
+            onClick={() => setView("settings")}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm ${view === "settings" ? "bg-soft text-fg" : "text-muted hover:bg-soft hover:text-fg"}`}
+          >
+            <Settings size={20} strokeWidth={1.6} />
+            Settings
+          </button>
+          <button
+            type="button"
             className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-xs text-muted hover:bg-soft hover:text-fg"
             onClick={() => void authClient.signOut()}
           >
@@ -338,6 +356,13 @@ export default function App() {
               <InsightsView
                 version={lastUpdated?.getTime() ?? 0}
                 onRecord={openRecord}
+              />
+            ) : view === "settings" ? (
+              <SettingsView
+                language={language}
+                onSave={onLanguageChange}
+                darkMode={theme === "dark"}
+                onToggleTheme={toggleTheme}
               />
             ) : view === "overview" ? (
               <>
@@ -523,18 +548,13 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={toggleTheme}
-          aria-label={
-            theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"
-          }
-          className="grid justify-items-center gap-1 py-1.5 text-[10px] text-muted"
+          aria-label="Settings"
+          aria-current={view === "settings" ? "page" : undefined}
+          onClick={() => setView("settings")}
+          className={`grid justify-items-center gap-1 py-1.5 text-[10px] ${view === "settings" ? "text-fg" : "text-muted"}`}
         >
-          {theme === "dark" ? (
-            <Sun size={18} strokeWidth={1.5} />
-          ) : (
-            <Moon size={18} strokeWidth={1.5} />
-          )}
-          {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          <Settings size={18} strokeWidth={1.5} />
+          Settings
         </button>
       </nav>
       {toast && (

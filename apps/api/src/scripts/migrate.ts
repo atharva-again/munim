@@ -25,7 +25,11 @@ try {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS munim_conversations_expires_idx ON munim_conversations(expires_at)`,
   );
-  console.info("Google auth and conversation tables are ready.");
+  await pool.query(`CREATE TABLE IF NOT EXISTS munim_preferences (
+    business_id text PRIMARY KEY, language text NOT NULL CHECK (language IN ('en', 'hi', 'hinglish')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  console.info("Auth, conversation and preference tables are ready.");
 } finally {
   await pool.end();
 }

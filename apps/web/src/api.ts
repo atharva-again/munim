@@ -1,6 +1,9 @@
 import { z } from "zod";
 import {
   insightsSchema,
+  preferencesSchema,
+  preferredLanguageSchema,
+  type PreferredLanguage,
   ledgerSummarySchema,
   transactionSchema,
   type InsightQuery,
@@ -37,6 +40,14 @@ async function request<T>(
 }
 const memoryResultSchema = z.object({ result: z.unknown() });
 export const api = {
+  preferences: (signal: AbortSignal) =>
+    request("/api/preferences", preferencesSchema, { signal }),
+  saveLanguage: (language: PreferredLanguage) =>
+    request(
+      "/api/preferences",
+      z.object({ language: preferredLanguageSchema }),
+      { method: "POST", body: JSON.stringify({ language }) },
+    ),
   insights: (query: InsightQuery, signal: AbortSignal) =>
     request(
       `/api/insights?${new URLSearchParams({ period: query.period, direction: query.direction, age: query.age, page: String(query.page) })}`,

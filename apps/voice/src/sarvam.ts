@@ -58,7 +58,9 @@ class SarvamSpeechStream extends stt.SpeechStream {
       encoding: "linear16",
       sample_rate: "16000",
       endpointing: "vad",
-      silence_duration_ms: "650",
+      silence_duration_ms: "800",
+      threshold: "0.5",
+      min_speech_duration_ms: "300",
     }).toString();
     const ws = new WebSocket(url, {
       headers: { "api-subscription-key": this.apiKey },

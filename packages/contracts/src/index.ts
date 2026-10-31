@@ -1,5 +1,23 @@
 import { z } from "zod";
 
+export const preferredLanguageSchema = z.enum(["en", "hi", "hinglish"]);
+export type PreferredLanguage = z.infer<typeof preferredLanguageSchema>;
+export const preferencesSchema = z.object({
+  language: preferredLanguageSchema.nullable(),
+});
+export const languageLabels: Record<PreferredLanguage, string> = {
+  en: "English",
+  hi: "Hindi",
+  hinglish: "Hinglish",
+};
+export function greetingFor(language: PreferredLanguage): string {
+  return {
+    en: "Hello, I'm Munim. Tell me what happened.",
+    hi: "नमस्ते, मैं मुनीम हूँ। बताइए, क्या लेन-देन हुआ?",
+    hinglish: "Hi, मैं Munim हूँ। बताइए, क्या entry करनी है?",
+  }[language];
+}
+
 export const transactionKinds = [
   "sale",
   "purchase",
@@ -68,6 +86,17 @@ export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 export type Transaction = z.infer<typeof transactionSchema>;
 export type LedgerSummary = z.infer<typeof ledgerSummarySchema>;
 
+export const directionByKind = {
+  sale: "inflow",
+  purchase: "outflow",
+  expense: "outflow",
+  customer_payment: "inflow",
+  supplier_payment: "outflow",
+  refund: "outflow",
+  transfer: "transfer",
+  other: undefined,
+} satisfies Record<TransactionKind, TransactionDirection | undefined>;
+
 export const transactionKindLabels: Record<TransactionKind, string> = {
   sale: "Sale",
   purchase: "Purchase",
@@ -91,6 +120,7 @@ export const conversationMessageSchema = z.object({
   at: z.string(),
 });
 export const conversationSchema = z.object({
+  language: preferredLanguageSchema.default("en"),
   id: z.string().uuid(),
   revision: z.number().int(),
   draft: draftSchema,
@@ -124,16 +154,7 @@ export function validateDraft(draft: TransactionDraft) {
   const parsed = createTransactionSchema.safeParse(draft);
   if (!parsed.success) return null;
   const input = parsed.data;
-  const direction =
-    input.kind === "transfer"
-      ? "transfer"
-      : ["purchase", "expense", "supplier_payment", "refund"].includes(
-            input.kind,
-          )
-        ? "outflow"
-        : ["sale", "customer_payment"].includes(input.kind)
-          ? "inflow"
-          : input.direction;
+  const direction = directionByKind[input.kind] ?? input.direction;
   if (direction !== input.direction) return null;
   if (input.settlementStatus !== "settled" && !input.counterparty) return null;
   if (

@@ -4,6 +4,7 @@ import {
   transactionDirections,
   transactionKinds,
   transactionKindLabels,
+  directionByKind,
   type TransactionDraft,
 } from "@munim/contracts";
 import { fieldClass, inputClass } from "./ui";
@@ -26,22 +27,7 @@ export function DraftForm({
           value={draft.kind ?? ""}
           onChange={(e) => {
             const kind = transactionKinds.find((v) => v === e.target.value);
-            const direction =
-              kind === "transfer"
-                ? "transfer"
-                : kind &&
-                    [
-                      "purchase",
-                      "expense",
-                      "supplier_payment",
-                      "refund",
-                    ].includes(kind)
-                  ? "outflow"
-                  : kind === "other"
-                    ? undefined
-                    : kind
-                      ? "inflow"
-                      : undefined;
+            const direction = kind ? directionByKind[kind] : undefined;
             set({ kind, direction });
           }}
         >

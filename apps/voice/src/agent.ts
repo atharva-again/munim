@@ -11,7 +11,12 @@ import {
   type llm,
 } from "@livekit/agents";
 import * as silero from "@livekit/agents-plugin-silero";
-import { conversationSchema, type Conversation } from "@munim/contracts";
+import {
+  conversationSchema,
+  greetingFor,
+  type Conversation,
+  type PreferredLanguage,
+} from "@munim/contracts";
 import { SarvamRealtimeSTT, SarvamStreamingTTS } from "./sarvam.js";
 config({ path: "../../.env" });
 config();
@@ -19,7 +24,19 @@ const metadataSchema = z.object({
   id: z.string().uuid(),
   token: z.string().min(32),
 });
+const savedNotices: Record<PreferredLanguage, string> = {
+  en: "That entry is saved. Choose New Entry to record another transaction.",
+  hi: "वह लेन-देन सेव हो गया है। अगला लेन-देन लिखने के लिए नया लेन-देन चुनिए।",
+  hinglish: "वह entry save हो गई है। अगली entry के लिए New Entry चुनिए।",
+};
+const failureNotices: Record<PreferredLanguage, string> = {
+  en: "I could not finish that. Please check the draft on screen before trying again.",
+  hi: "यह पूरा नहीं हो पाया। दोबारा कोशिश करने से पहले स्क्रीन पर विवरण देख लीजिए।",
+  hinglish:
+    "यह पूरा नहीं हो पाया। दोबारा try करने से पहले screen पर draft देख लीजिए।",
+};
 class MunimAgent extends voice.Agent {
+  private language: PreferredLanguage = "en";
   constructor(
     private readonly connection: z.infer<typeof metadataSchema>,
     private readonly publish: (state: Conversation) => Promise<void>,
@@ -46,7 +63,9 @@ class MunimAgent extends voice.Agent {
       throw new Error(
         `Munim conversation request failed (${response.status}).`,
       );
-    return conversationSchema.parse(await response.json());
+    const state = conversationSchema.parse(await response.json());
+    this.language = state.language;
+    return state;
   }
   override async onUserTurnCompleted(
     _context: llm.ChatContext,
@@ -55,9 +74,7 @@ class MunimAgent extends voice.Agent {
     try {
       const before = await this.request();
       if (before.phase === "saved") {
-        this.session.say(
-          "That entry is saved. Choose New Entry to record another transaction.",
-        );
+        this.session.say(savedNotices[this.language]);
         throw new voice.StopResponse();
       }
       const state = await this.request("turn", {
@@ -88,9 +105,7 @@ class MunimAgent extends voice.Agent {
         conversationId: this.connection.id,
         error,
       });
-      this.session.say(
-        "I could not finish that. Please check the draft on screen before trying again.",
-      );
+      this.session.say(failureNotices[this.language]);
     }
     throw new voice.StopResponse();
   }
@@ -111,15 +126,19 @@ export default defineAgent({
     });
     const initialState = await agent.request();
     const session = new voice.AgentSession({
-      vad: await silero.VAD.load(),
+      vad: await silero.VAD.load({
+        minSpeechDuration: 250,
+        minSilenceDuration: 700,
+        activationThreshold: 0.6,
+      }),
       stt: new SarvamRealtimeSTT(key),
       tts: new SarvamStreamingTTS(key),
       connOptions: { maxUnrecoverableErrors: 1 },
       turnHandling: {
         turnDetection: "stt",
         preemptiveGeneration: { enabled: false },
-        interruption: { enabled: true, mode: "vad", minDuration: 350 },
-        endpointing: { minDelay: 200, maxDelay: 1500 },
+        interruption: { enabled: true, mode: "vad", minDuration: 500 },
+        endpointing: { minDelay: 200, maxDelay: 1800 },
       },
     });
     await session.start({
@@ -143,9 +162,9 @@ export default defineAgent({
       await session.close();
     });
     const greeting = session.say(
-      initialState.phase === "review"
-        ? initialState.reply
-        : "I'm listening. बोलिए, क्या लेन-देन हुआ?",
+      initialState.phase === "saved"
+        ? savedNotices[initialState.language]
+        : greetingFor(initialState.language),
       { allowInterruptions: true },
     );
     await greeting.waitForPlayout();
@@ -153,11 +172,21 @@ export default defineAgent({
       initialState.phase === "review" &&
       !greeting.interrupted &&
       !greeting.exception()
-    )
-      await agent.request("reviewed", {
-        revision: initialState.revision,
-        channel: "voice",
-      });
+    ) {
+      const current = await agent.request();
+      if (
+        current.phase === "review" &&
+        current.revision === initialState.revision
+      ) {
+        const review = session.say(current.reply, { allowInterruptions: true });
+        await review.waitForPlayout();
+        if (!review.interrupted && !review.exception())
+          await agent.request("reviewed", {
+            revision: current.revision,
+            channel: "voice",
+          });
+      }
+    }
   },
 });
 cli.runApp(

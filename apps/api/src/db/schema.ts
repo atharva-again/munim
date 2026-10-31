@@ -143,3 +143,11 @@ export const conversations = pgTable("munim_conversations", {
     mode: "date",
   }).notNull(),
 });
+
+export const userPreferences = pgTable("munim_preferences", {
+  businessId: text("business_id").primaryKey(),
+  language: text("language").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+});

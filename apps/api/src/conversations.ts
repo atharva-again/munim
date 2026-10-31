@@ -11,12 +11,14 @@ import { z } from "zod";
 import { AccessToken, AgentDispatchClient } from "livekit-server-sdk";
 import {
   conversationSchema,
+  greetingFor,
   formDraftSchema,
   revisionSchema,
   turnSchema,
   validateDraft,
   type Conversation,
 } from "@munim/contracts";
+import { readLanguage } from "./preferences.js";
 import type { ApiEnv } from "./auth.js";
 import { getDatabase } from "./db/index.js";
 import { conversations } from "./db/schema.js";
@@ -83,15 +85,22 @@ conversationRoutes.post("/", async (c) => {
       { error: "Please wait a minute before starting another entry." },
       429,
     );
+  const language = await readLanguage(db, c.get("businessId"));
+  if (!language)
+    return c.json(
+      { error: "Choose your preferred language before recording." },
+      409,
+    );
   const id = randomUUID(),
     token = randomBytes(32).toString("base64url");
   const state: Conversation = {
     id,
+    language,
     revision: 0,
     draft: {},
     phase: "collecting",
     messages: [],
-    reply: "Tell me what happened. बोलिए, क्या लेन-देन हुआ?",
+    reply: greetingFor(language),
     reviewedRevision: null,
     voiceReviewedRevision: null,
     transactionId: null,
@@ -154,6 +163,19 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         410,
       );
     let state = conversationSchema.parse(row.state);
+    const language = await readLanguage(tx, row.businessId);
+    if (language && language !== state.language) {
+      state = {
+        ...state,
+        language,
+        reviewedRevision: null,
+        voiceReviewedRevision: null,
+        reply:
+          state.phase === "review"
+            ? reviewText(state, language)
+            : greetingFor(language),
+      };
+    }
     const action = c.req.param("action");
     if (c.req.method === "GET" && !action) return c.json(state);
     if (c.req.method !== "POST")
@@ -215,6 +237,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
           503,
         );
       state.voiceReviewedRevision = null;
+      if (state.phase === "review") state.reply = reviewText(state);
       await tx
         .update(conversations)
         .set({ state })
@@ -382,23 +405,24 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         );
       const state: Conversation = {
         ...latest,
-        draft: result.draft,
+        draft: result.kind === "proposal" ? result.draft : latest.draft,
         revision: latest.revision + 1,
         phase:
-          !result.question && validateDraft(result.draft)
+          result.kind === "proposal" &&
+          !result.question &&
+          validateDraft(result.draft)
             ? "review"
             : "collecting",
       };
       state.reply =
-        state.phase === "review"
-          ? reviewText(
-              state,
-              /[\u0900-\u097f]|\b(hai|haan|diye|udhaar|rupaye|ka|ko)\b/i.test(
-                turn.text,
-              ),
-            )
-          : result.question ||
-            "What was the amount, and was it paid or still due?";
+        result.kind === "reply"
+          ? result.message
+          : state.phase === "review"
+            ? reviewText(state, result.language)
+            : result.question ||
+              (state.language === "en"
+                ? "What happened, and was it paid or still due?"
+                : "क्या लेन-देन हुआ और पैसे मिल गए या उधार है?");
       state.messages = (
         [
           ...state.messages,
