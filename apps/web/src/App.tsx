@@ -26,7 +26,7 @@ import {
 import type {
   LedgerSummary,
   Transaction,
-  PreferredLanguage,
+  SavedPreferences,
 } from "@munim/contracts";
 import { authClient } from "./auth-client";
 import { api, formatRupees, type ApiHealth } from "./api";
@@ -71,11 +71,11 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   year: "numeric",
 });
 export default function App({
-  language,
-  onLanguageChange,
+  preferences,
+  onPreferencesChange,
 }: {
-  language: PreferredLanguage;
-  onLanguageChange: (language: PreferredLanguage) => Promise<void>;
+  preferences: SavedPreferences;
+  onPreferencesChange: (preferences: SavedPreferences) => Promise<void>;
 }) {
   const [view, setView] = useState<View>("overview");
   const contentRef = useRef<HTMLDivElement>(null);
@@ -359,8 +359,8 @@ export default function App({
               />
             ) : view === "settings" ? (
               <SettingsView
-                language={language}
-                onSave={onLanguageChange}
+                preferences={preferences}
+                onSave={onPreferencesChange}
                 darkMode={theme === "dark"}
                 onToggleTheme={toggleTheme}
               />
@@ -502,6 +502,7 @@ export default function App({
             <div className={view === "record" ? "min-h-0 flex-1" : "hidden"}>
               <Suspense fallback={<LoadingRows />}>
                 <RecordView
+                  preferences={preferences}
                   visible={view === "record"}
                   onSaved={transactionSaved}
                 />

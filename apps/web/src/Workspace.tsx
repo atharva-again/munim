@@ -1,16 +1,24 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import type { PreferredLanguage } from "@munim/contracts";
+import {
+  type PreferredLanguage,
+  type ApprovalMode,
+  type SavedPreferences,
+  type Preferences,
+} from "@munim/contracts";
 import { api } from "./api";
+import { ApprovalModePicker } from "./ApprovalModePicker";
 import { LanguagePicker } from "./LanguagePicker";
 import { buttonClass, primaryClass } from "./ui";
 const App = lazy(() => import("./App"));
 type State =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; language: PreferredLanguage | null };
+  | { kind: "ready"; preferences: Preferences };
 export default function Workspace() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [selected, setSelected] = useState<PreferredLanguage | null>(null);
+  const [selectedApprovalMode, setSelectedApprovalMode] =
+    useState<ApprovalMode | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -20,7 +28,7 @@ export default function Workspace() {
       .preferences(controller.signal)
       .then((preference) => {
         if (!controller.signal.aborted)
-          setState({ kind: "ready", language: preference.language });
+          setState({ kind: "ready", preferences: preference });
       })
       .catch((caught) => {
         if (!controller.signal.aborted)
@@ -34,11 +42,20 @@ export default function Workspace() {
       });
     return () => controller.abort();
   }, [retry]);
-  const saveLanguage = async (language: PreferredLanguage) => {
-    const preference = await api.saveLanguage(language);
-    setState({ kind: "ready", language: preference.language });
+  const savePreferences = async (preferences: SavedPreferences) => {
+    const saved = await api.savePreferences(preferences);
+    setState({ kind: "ready", preferences: saved });
   };
-  if (state.kind === "ready" && state.language)
+  const language =
+    selected ?? (state.kind === "ready" ? state.preferences.language : null);
+  const approvalMode =
+    selectedApprovalMode ??
+    (state.kind === "ready" ? state.preferences.approvalMode : null);
+  if (
+    state.kind === "ready" &&
+    state.preferences.language &&
+    state.preferences.approvalMode
+  )
     return (
       <Suspense
         fallback={
@@ -47,7 +64,13 @@ export default function Workspace() {
           </p>
         }
       >
-        <App language={state.language} onLanguageChange={saveLanguage} />
+        <App
+          preferences={{
+            language: state.preferences.language,
+            approvalMode: state.preferences.approvalMode,
+          }}
+          onPreferencesChange={savePreferences}
+        />
       </Suspense>
     );
   return (
@@ -82,36 +105,46 @@ export default function Workspace() {
           </div>
         ) : (
           <>
-            <h1 className="text-2xl tracking-tight">How Should Munim Speak?</h1>
+            <h1 className="text-2xl tracking-tight">Make Munim Yours</h1>
             <p className="mt-3 text-sm leading-6 text-muted">
               Choose the language for your greeting and default replies. You can
               speak Hindi, English, or Hinglish at any time.
             </p>
-            <div className="mt-7">
+            <h2 className="mt-7 text-sm">Conversation Language</h2>
+            <div className="mt-3">
               <LanguagePicker
-                value={selected}
+                value={language}
                 onChange={setSelected}
                 disabled={busy}
               />
             </div>
+            <h2 className="mt-7 text-sm">How Should Entries Be Saved?</h2>
+            <div className="mt-3">
+              <ApprovalModePicker
+                value={approvalMode}
+                onChange={setSelectedApprovalMode}
+                disabled={busy}
+              />
+            </div>
             <p className="mt-4 text-[11px] text-muted">
-              You can change this later in Settings.
+              You can change both preferences later in Settings. The form always
+              saves only when you submit it.
             </p>
             <button
               type="button"
               className={`${primaryClass} mt-6`}
-              disabled={!selected || busy}
+              disabled={!language || !approvalMode || busy}
               onClick={async () => {
-                if (!selected) return;
+                if (!language || !approvalMode) return;
                 setBusy(true);
                 setError("");
                 try {
-                  await saveLanguage(selected);
+                  await savePreferences({ language, approvalMode });
                 } catch (caught) {
                   setError(
                     caught instanceof Error
                       ? caught.message
-                      : "Could not save your language.",
+                      : "Could not save your preferences.",
                   );
                 } finally {
                   setBusy(false);

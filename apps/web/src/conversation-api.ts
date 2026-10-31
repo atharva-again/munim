@@ -45,10 +45,15 @@ export const conversations = {
         channel: "text",
       }),
     ),
-  form: async (session: RecordingSession, draft: TransactionDraft) =>
+  form: async (
+    session: RecordingSession,
+    draft: TransactionDraft,
+    submit = false,
+  ) =>
     conversationSchema.parse(
       await request(`/${session.conversation.id}/form`, session.token, {
         draft,
+        submit,
         revision: session.conversation.revision,
       }),
     ),

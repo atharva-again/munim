@@ -29,6 +29,12 @@ try {
     business_id text PRIMARY KEY, language text NOT NULL CHECK (language IN ('en', 'hi', 'hinglish')),
     updated_at timestamptz NOT NULL DEFAULT now()
   )`);
+  await pool.query(
+    `ALTER TABLE munim_preferences ADD COLUMN IF NOT EXISTS approval_mode text CHECK (approval_mode IN ('approval', 'autonomous'))`,
+  );
+  await pool.query(
+    `ALTER TABLE IF EXISTS munim_transactions ADD COLUMN IF NOT EXISTS approval_mode text NOT NULL DEFAULT 'approval' CHECK (approval_mode IN ('approval', 'autonomous'))`,
+  );
   console.info("Auth, conversation and preference tables are ready.");
 } finally {
   await pool.end();

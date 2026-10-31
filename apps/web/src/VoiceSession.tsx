@@ -119,7 +119,12 @@ export default function VoiceSession({
     });
     room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
       if (participant?.identity === room.localParticipant.identity)
-        setPartial(segments.map((s) => s.text).join(" "));
+        setPartial(
+          segments
+            .filter((s) => !s.final)
+            .map((s) => s.text)
+            .join(" "),
+        );
     });
     room.on(RoomEvent.Disconnected, () => {
       clearTimeout(agentTimeout);
@@ -193,8 +198,9 @@ export default function VoiceSession({
       </div>
       <h2 className="mt-5 text-2xl tracking-tight">Just Say What Happened</h2>
       <p className="mt-3 text-xs leading-6 text-muted">
-        Speak in Hindi, English, or Hinglish. Keep talking naturally and
-        interrupt to correct anything.
+        {session.conversation.approvalMode === "autonomous"
+          ? "Speak in Hindi, English, or Hinglish. Complete new entries save immediately; missing details get a short question."
+          : "Speak in Hindi, English, or Hinglish. You can correct the draft before confirming it."}
       </p>
       {partial && (
         <p className="mt-4 rounded-lg bg-soft p-3 text-sm" aria-live="polite">

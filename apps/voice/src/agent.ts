@@ -73,7 +73,7 @@ class MunimAgent extends voice.Agent {
   ) {
     try {
       const before = await this.request();
-      if (before.phase === "saved") {
+      if (before.phase === "saved" && before.approvalMode === "approval") {
         this.session.say(savedNotices[this.language]);
         throw new voice.StopResponse();
       }
@@ -162,7 +162,7 @@ export default defineAgent({
       await session.close();
     });
     const greeting = session.say(
-      initialState.phase === "saved"
+      initialState.phase === "saved" && initialState.approvalMode === "approval"
         ? savedNotices[initialState.language]
         : greetingFor(initialState.language),
       { allowInterruptions: true },
@@ -170,6 +170,7 @@ export default defineAgent({
     await greeting.waitForPlayout();
     if (
       initialState.phase === "review" &&
+      initialState.approvalMode === "approval" &&
       !greeting.interrupted &&
       !greeting.exception()
     ) {

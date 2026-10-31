@@ -2,9 +2,22 @@ import { z } from "zod";
 
 export const preferredLanguageSchema = z.enum(["en", "hi", "hinglish"]);
 export type PreferredLanguage = z.infer<typeof preferredLanguageSchema>;
+export const approvalModeSchema = z.enum(["approval", "autonomous"]);
+export type ApprovalMode = z.infer<typeof approvalModeSchema>;
 export const preferencesSchema = z.object({
   language: preferredLanguageSchema.nullable(),
+  approvalMode: approvalModeSchema.nullable(),
 });
+export type Preferences = z.infer<typeof preferencesSchema>;
+export const savePreferencesSchema = z.object({
+  language: preferredLanguageSchema,
+  approvalMode: approvalModeSchema,
+});
+export type SavedPreferences = z.infer<typeof savePreferencesSchema>;
+export const approvalModeLabels: Record<ApprovalMode, string> = {
+  approval: "Ask for Approval",
+  autonomous: "Full Autonomy",
+};
 export const languageLabels: Record<PreferredLanguage, string> = {
   en: "English",
   hi: "Hindi",
@@ -119,18 +132,27 @@ export const conversationMessageSchema = z.object({
   channel: z.enum(["voice", "text", "form"]),
   at: z.string(),
 });
-export const conversationSchema = z.object({
-  language: preferredLanguageSchema.default("en"),
-  id: z.string().uuid(),
-  revision: z.number().int(),
-  draft: draftSchema,
-  phase: z.enum(["collecting", "review", "saved"]),
-  messages: z.array(conversationMessageSchema),
-  reply: z.string(),
-  reviewedRevision: z.number().int().nullable(),
-  voiceReviewedRevision: z.number().int().nullable().default(null),
-  transactionId: z.string().uuid().nullable(),
-});
+export const conversationSchema = z
+  .object({
+    language: preferredLanguageSchema.default("en"),
+    replyLanguage: preferredLanguageSchema.optional(),
+    approvalMode: approvalModeSchema.default("approval"),
+    id: z.string().uuid(),
+    entryId: z.string().uuid().optional(),
+    revision: z.number().int(),
+    draft: draftSchema,
+    phase: z.enum(["collecting", "review", "saved"]),
+    messages: z.array(conversationMessageSchema),
+    reply: z.string(),
+    reviewedRevision: z.number().int().nullable(),
+    voiceReviewedRevision: z.number().int().nullable().default(null),
+    transactionId: z.string().uuid().nullable(),
+  })
+  .transform((state) => ({
+    ...state,
+    entryId: state.entryId ?? state.id,
+    replyLanguage: state.replyLanguage ?? state.language,
+  }));
 export type Conversation = z.infer<typeof conversationSchema>;
 export const turnSchema = z.object({
   requestId: z.string().uuid(),
@@ -141,6 +163,7 @@ export const turnSchema = z.object({
 export const formDraftSchema = z.object({
   revision: z.number().int(),
   draft: draftSchema,
+  submit: z.boolean().default(false),
 });
 export const revisionSchema = z.object({
   revision: z.number().int().nonnegative(),

@@ -49,6 +49,7 @@ export const transactions = pgTable(
       .notNull()
       .default("settled"),
     source: text("source").notNull().default("manual"),
+    approvalMode: text("approval_mode").notNull().default("approval"),
     occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -147,6 +148,7 @@ export const conversations = pgTable("munim_conversations", {
 export const userPreferences = pgTable("munim_preferences", {
   businessId: text("business_id").primaryKey(),
   language: text("language").notNull(),
+  approvalMode: text("approval_mode"),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),

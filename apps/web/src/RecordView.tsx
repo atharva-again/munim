@@ -16,12 +16,15 @@ import {
 } from "lucide-react";
 import {
   validateDraft,
+  approvalModeLabels,
+  transactionKindLabels,
+  type SavedPreferences,
   type Conversation,
   type TransactionDraft,
 } from "@munim/contracts";
 import { conversations, type RecordingSession } from "./conversation-api";
 import { DraftForm } from "./DraftForm";
-import { formatRupees } from "./api";
+import { formatDate, formatRupees } from "./api";
 import { buttonClass, inputClass, primaryClass, StatusDot } from "./ui";
 const VoiceSession = lazy(() => import("./VoiceSession"));
 type Mode = "voice" | "text" | "form";
@@ -32,9 +35,11 @@ const modes = [
 ] satisfies { id: Mode; label: string; Icon: typeof Mic }[];
 export default function RecordView({
   visible,
+  preferences,
   onSaved,
 }: {
   visible: boolean;
+  preferences: SavedPreferences;
   onSaved: () => Promise<void>;
 }) {
   const [session, setSession] = useState<RecordingSession | null>(null);
@@ -131,7 +136,13 @@ export default function RecordView({
     return () => {
       cancelled = true;
     };
-  }, [visible, session?.conversation.id, update]);
+  }, [
+    visible,
+    session?.conversation.id,
+    preferences.language,
+    preferences.approvalMode,
+    update,
+  ]);
   useEffect(() => {
     if (
       !visible ||
@@ -195,6 +206,22 @@ export default function RecordView({
     try {
       await operation();
     } catch (caught) {
+      const latest = session
+        ? await conversations.get(session).catch(() => null)
+        : null;
+      if (
+        latest &&
+        (latest.revision > currentRevision.current || latest.phase === "saved")
+      )
+        update(latest);
+      if (
+        latest?.phase === "saved" &&
+        latest.transactionId !== session?.conversation.transactionId
+      ) {
+        setText("");
+        retry.current = null;
+        return;
+      }
       setError(
         caught instanceof Error
           ? caught.message
@@ -211,13 +238,19 @@ export default function RecordView({
       setMode(next);
     });
   const state = session?.conversation;
+  const autonomous = preferences.approvalMode === "autonomous";
   return (
     <section className="mx-auto flex w-full max-w-220 flex-col gap-5">
-      <header>
+      <header className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="sr-only">Record Transaction</h1>
         <p className="text-xs leading-6 text-muted">
-          Speak, type, or use the form. Review the details before saving.
+          {autonomous
+            ? "Speak or type. Complete entries save automatically."
+            : "Speak, type, or use the form. Check the details before saving."}
         </p>
+        <span className="rounded-md border border-line px-2 py-1 text-[10px] text-muted">
+          {approvalModeLabels[preferences.approvalMode]}
+        </span>
       </header>
       <div className="rounded-xl border border-line bg-canvas">
         <div
@@ -233,7 +266,7 @@ export default function RecordView({
               aria-selected={mode === id}
               aria-controls="record-panel"
               id={`record-tab-${id}`}
-              disabled={busy || state?.phase === "saved"}
+              disabled={busy || (state?.phase === "saved" && !autonomous)}
               onClick={() => changeMode(id)}
               className={`flex min-h-11 items-center gap-2 border-b-2 px-4 text-xs ${mode === id ? "border-fg text-fg" : "border-transparent text-muted hover:text-fg"}`}
             >
@@ -242,7 +275,12 @@ export default function RecordView({
             </button>
           ))}
         </div>
-        <div className="px-5 pb-6 sm:px-7">
+        <div
+          className="px-5 pb-6 sm:px-7"
+          role="tabpanel"
+          id="record-panel"
+          aria-labelledby={`record-tab-${mode}`}
+        >
           {!session && (
             <div className="py-8" role="status">
               {error ? (
@@ -273,25 +311,21 @@ export default function RecordView({
               />
             </Suspense>
           )}
-          {session && state?.phase !== "saved" && (
-            <div
-              role="tabpanel"
-              id="record-panel"
-              aria-labelledby={`record-tab-${mode}`}
-            >
-              {mode === "voice" ? null : mode === "text" ? (
-                <form
-                  className="py-5"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!text.trim()) return;
-                    void run(async () => {
-                      const attempt =
-                        retry.current?.text === text
-                          ? retry.current
-                          : { text, requestId: crypto.randomUUID() };
-                      retry.current = attempt;
-                      try {
+          {session &&
+            (state?.phase !== "saved" || (autonomous && mode === "text")) && (
+              <div>
+                {mode === "voice" ? null : mode === "text" ? (
+                  <form
+                    className="py-5"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!text.trim()) return;
+                      void run(async () => {
+                        const attempt =
+                          retry.current?.text === text
+                            ? retry.current
+                            : { text, requestId: crypto.randomUUID() };
+                        retry.current = attempt;
                         update(
                           await conversations.turn(
                             session,
@@ -299,78 +333,73 @@ export default function RecordView({
                             attempt.requestId,
                           ),
                         );
-                      } catch (error) {
-                        await conversations
-                          .get(session)
-                          .then(update)
-                          .catch(() => {});
-                        throw error;
-                      }
-                      retry.current = null;
-                      setText("");
-                    });
-                  }}
-                >
-                  <label
-                    className="grid gap-3 text-xs"
-                    htmlFor="record-message"
-                  >
-                    Tell Munim What Happened
-                    <textarea
-                      id="record-message"
-                      className={`${inputClass} min-h-24 resize-y`}
-                      maxLength={2000}
-                      value={text}
-                      onChange={(e) => setText(e.target.value)}
-                      placeholder="Ramesh took ₹500 of goods, paid ₹200, and owes ₹300."
-                      disabled={busy || !session.textConfigured}
-                    />
-                  </label>
-                  <button
-                    className={`${primaryClass} mt-3`}
-                    type="submit"
-                    disabled={busy || !text.trim() || !session.textConfigured}
-                  >
-                    <Send size={14} />
-                    {busy ? "Understanding…" : "Send"}
-                  </button>
-                  {!session.textConfigured && (
-                    <p className="mt-3 text-xs text-muted">
-                      Text understanding is awaiting Groq setup. The form is
-                      available now.
-                    </p>
-                  )}
-                </form>
-              ) : (
-                <div className="py-5">
-                  <DraftForm
-                    draft={draft}
-                    disabled={busy}
-                    onChange={(value) => {
-                      setDraft(value);
-                      setDirty(true);
+                        retry.current = null;
+                        setText("");
+                      });
                     }}
-                  />
-                  <button
-                    type="button"
-                    className={`${primaryClass} mt-5`}
-                    disabled={busy || !validateDraft(draft)}
-                    onClick={() =>
-                      void run(async () =>
-                        update(await conversations.form(session, draft)),
-                      )
-                    }
                   >
-                    Review Entry
-                  </button>
-                  <p className="mt-3 text-[11px] text-muted">
-                    For credit or part payments, include the customer or
-                    supplier.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+                    <label
+                      className="grid gap-3 text-xs"
+                      htmlFor="record-message"
+                    >
+                      Tell Munim What Happened
+                      <textarea
+                        id="record-message"
+                        className={`${inputClass} min-h-24 resize-y`}
+                        maxLength={2000}
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        placeholder="Ramesh took ₹500 of goods, paid ₹200, and owes ₹300."
+                        disabled={busy || !session.textConfigured}
+                      />
+                    </label>
+                    <button
+                      className={`${primaryClass} mt-3`}
+                      type="submit"
+                      disabled={busy || !text.trim() || !session.textConfigured}
+                    >
+                      <Send size={14} />
+                      {busy ? "Understanding…" : "Send"}
+                    </button>
+                    {!session.textConfigured && (
+                      <p className="mt-3 text-xs text-muted">
+                        Text understanding is awaiting Groq setup. The form is
+                        available now.
+                      </p>
+                    )}
+                  </form>
+                ) : (
+                  <div className="py-5">
+                    <DraftForm
+                      draft={draft}
+                      disabled={busy}
+                      onChange={(value) => {
+                        setDraft(value);
+                        setDirty(true);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className={`${primaryClass} mt-5`}
+                      disabled={busy || !validateDraft(draft)}
+                      onClick={() =>
+                        void run(async () =>
+                          update(
+                            await conversations.form(session, draft, true),
+                          ),
+                        )
+                      }
+                    >
+                      {autonomous ? "Save Entry" : "Review Entry"}
+                    </button>
+                    <p className="mt-3 text-[11px] text-muted">
+                      For credit or part payments, include the customer or
+                      supplier.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           {state && state.messages.length > 0 && mode !== "form" && (
             <div
               className="mb-4 max-h-44 space-y-3 overflow-y-auto border-t border-line pt-4"
@@ -382,7 +411,7 @@ export default function RecordView({
                   className={`text-xs leading-5 ${message.role === "user" ? "text-muted" : "text-fg"}`}
                 >
                   <span className="mr-2 text-[10px] text-muted">
-                    {message.role === "user" ? "You" : "Munim"}
+                    {message.role === "user" ? "You: " : "Munim: "}
                   </span>
                   {message.text}
                 </p>
@@ -403,12 +432,62 @@ export default function RecordView({
                   ? ""
                   : formatRupees(state.draft.amountPaise)}
               </p>
-              <p className="mt-3 text-xs leading-6 text-muted">{state.reply}</p>
+              <p className="mt-3 text-sm leading-6">
+                {state.draft.description}
+              </p>
+              <dl className="mt-3 grid grid-cols-2 gap-3 text-[11px] text-muted">
+                <div>
+                  <dt>Type</dt>
+                  <dd className="mt-1 text-fg">
+                    {state.draft.kind
+                      ? transactionKindLabels[state.draft.kind]
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Customer or Supplier</dt>
+                  <dd className="mt-1 text-fg">
+                    {state.draft.counterparty || "Not specified"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Payment</dt>
+                  <dd className="mt-1 text-fg">
+                    {state.draft.settlementStatus === "settled"
+                      ? "Fully Paid"
+                      : state.draft.settlementStatus === "partial"
+                        ? `${formatRupees(state.draft.settledAmountPaise ?? 0)} paid · ${formatRupees((state.draft.amountPaise ?? 0) - (state.draft.settledAmountPaise ?? 0))} due`
+                        : "Still Due"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Date</dt>
+                  <dd className="mt-1 text-fg">
+                    {state.draft.occurredAt
+                      ? formatDate(state.draft.occurredAt)
+                      : "Today"}
+                  </dd>
+                </div>
+                {state.draft.paymentMethod && (
+                  <div>
+                    <dt>Payment Method</dt>
+                    <dd className="mt-1 text-fg">
+                      {state.draft.paymentMethod === "upi"
+                        ? "UPI"
+                        : state.draft.paymentMethod.charAt(0).toUpperCase() +
+                          state.draft.paymentMethod.slice(1)}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              <p className="mt-4 text-xs leading-6 text-muted">{state.reply}</p>
               <button
                 type="button"
                 className={`${primaryClass} mt-4`}
                 disabled={
-                  busy || active || state.reviewedRevision !== state.revision
+                  busy ||
+                  active ||
+                  (!autonomous && state.reviewedRevision !== state.revision)
                 }
                 onClick={() =>
                   void run(async () =>
@@ -441,13 +520,22 @@ export default function RecordView({
               <p className="mt-3 text-xs text-muted">
                 {state.draft.description}
               </p>
+              {autonomous && mode !== "form" && (
+                <p className="mt-3 text-xs leading-6 text-muted">
+                  {mode === "voice"
+                    ? "Keep speaking to record the next entry."
+                    : "Send the next entry above."}
+                </p>
+              )}
               <button
                 type="button"
-                className={`${primaryClass} mt-5`}
+                className={`${autonomous && mode !== "form" ? buttonClass : primaryClass} mt-5`}
                 disabled={busy}
                 onClick={() => void start()}
               >
-                New Entry
+                {autonomous && mode !== "form"
+                  ? "New Conversation"
+                  : "New Entry"}
               </button>
             </section>
           )}

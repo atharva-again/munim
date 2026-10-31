@@ -18,7 +18,7 @@ import {
   validateDraft,
   type Conversation,
 } from "@munim/contracts";
-import { readLanguage } from "./preferences.js";
+import { readPreferences } from "./preferences.js";
 import type { ApiEnv } from "./auth.js";
 import { getDatabase } from "./db/index.js";
 import { conversations } from "./db/schema.js";
@@ -32,6 +32,8 @@ import {
   canConfirm,
   isConfirmation,
   reviewText,
+  savedText,
+  clarificationText,
 } from "./services/conversation-logic.js";
 
 export const conversationRoutes = new Hono<ApiEnv>();
@@ -44,6 +46,27 @@ class ConversationError extends Error {
   ) {
     super(message);
   }
+}
+async function saveDraft(
+  tx: Parameters<typeof insertTransaction>[0],
+  state: Conversation,
+  businessId: string,
+  channel: "voice" | "text" | "form",
+): Promise<Conversation> {
+  const input = validateDraft(state.draft);
+  if (!input) throw new ConversationError("Complete the draft first.", 400);
+  await insertTransaction(tx, input, {
+    businessId,
+    source: channel === "voice" ? "voice" : "manual",
+    id: state.entryId,
+    approvalMode: state.approvalMode,
+  });
+  return {
+    ...state,
+    phase: "saved",
+    transactionId: state.entryId,
+    reply: savedText(state),
+  };
 }
 conversationRoutes.use("*", bodyLimit({ maxSize: 16_384 }));
 conversationRoutes.onError((error, c) => {
@@ -60,7 +83,7 @@ conversationRoutes.onError((error, c) => {
   return c.json(
     {
       error:
-        "Conversation unavailable. Your draft has not been confirmed; refresh it before retrying.",
+        "Conversation unavailable. Check the latest entry before retrying.",
     },
     503,
   );
@@ -85,17 +108,21 @@ conversationRoutes.post("/", async (c) => {
       { error: "Please wait a minute before starting another entry." },
       429,
     );
-  const language = await readLanguage(db, c.get("businessId"));
-  if (!language)
+  const preferences = await readPreferences(db, c.get("businessId"));
+  if (!preferences.language || !preferences.approvalMode)
     return c.json(
-      { error: "Choose your preferred language before recording." },
+      { error: "Choose your language and saving preference before recording." },
       409,
     );
+  const { language, approvalMode } = preferences;
   const id = randomUUID(),
     token = randomBytes(32).toString("base64url");
   const state: Conversation = {
     id,
+    entryId: id,
     language,
+    replyLanguage: language,
+    approvalMode,
     revision: 0,
     draft: {},
     phase: "collecting",
@@ -163,17 +190,27 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         410,
       );
     let state = conversationSchema.parse(row.state);
-    const language = await readLanguage(tx, row.businessId);
-    if (language && language !== state.language) {
+    const preferences = await readPreferences(
+      tx,
+      row.businessId,
+      c.req.method === "POST",
+    );
+    const language = preferences.language ?? state.language;
+    const approvalMode = preferences.approvalMode ?? "approval";
+    if (language !== state.language || approvalMode !== state.approvalMode) {
       state = {
         ...state,
         language,
+        approvalMode,
+        replyLanguage: language,
         reviewedRevision: null,
         voiceReviewedRevision: null,
         reply:
           state.phase === "review"
             ? reviewText(state, language)
-            : greetingFor(language),
+            : state.phase === "saved"
+              ? savedText({ ...state, replyLanguage: language })
+              : greetingFor(language),
       };
     }
     const action = c.req.param("action");
@@ -201,23 +238,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
           "Review the latest draft before confirming.",
           409,
         );
-      const input = validateDraft(state.draft);
-      if (!input) throw new ConversationError("Complete the draft first.", 400);
-      await insertTransaction(
-        tx,
-        input,
-        row.businessId,
-        channel === "voice" ? "voice" : "manual",
-        id,
-      );
-      state = {
-        ...state,
-        phase: "saved",
-        transactionId: id,
-        reply: /[\u0900-\u097f]/.test(state.reply)
-          ? "लेन-देन सेव हो गया।"
-          : "Transaction saved to your ledger.",
-      };
+      state = await saveDraft(tx, state, row.businessId, channel);
     };
     if (action === "voice-token") {
       const {
@@ -237,7 +258,10 @@ conversationRoutes.all("/:id/:action?", async (c) => {
           503,
         );
       state.voiceReviewedRevision = null;
-      if (state.phase === "review") state.reply = reviewText(state);
+      if (state.phase === "review") {
+        state.replyLanguage = state.language;
+        state.reply = reviewText(state);
+      }
       await tx
         .update(conversations)
         .set({ state })
@@ -282,13 +306,30 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       if (receipts[candidate.requestId])
         return c.json(receipts[candidate.requestId]);
     }
-    if (state.phase === "saved")
-      throw new ConversationError(
-        "Start a new entry; this transaction is already saved.",
-        409,
-      );
+    if (state.phase === "saved") {
+      if (action !== "turn" || state.approvalMode !== "autonomous")
+        throw new ConversationError(
+          "Start a new entry; this transaction is already saved.",
+          409,
+        );
+      const candidate = turnSchema.parse(body);
+      if (candidate.revision !== state.revision)
+        throw new ConversationError(
+          "The entry changed. Refresh it before continuing.",
+          409,
+        );
+      state = {
+        ...state,
+        entryId: randomUUID(),
+        draft: {},
+        phase: "collecting",
+        transactionId: null,
+        reviewedRevision: null,
+        voiceReviewedRevision: null,
+      };
+    }
     if (action === "form") {
-      const { revision, draft } = formDraftSchema.parse(body);
+      const { revision, draft, submit } = formDraftSchema.parse(body);
       if (revision !== state.revision)
         throw new ConversationError(
           "The draft changed. Reopen the form to edit the latest version.",
@@ -297,15 +338,25 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       state = {
         ...state,
         draft,
+        replyLanguage: state.language,
         revision: revision + 1,
         reviewedRevision: null,
         voiceReviewedRevision: null,
-        phase: validateDraft(draft) ? "review" : "collecting",
+        phase:
+          validateDraft(draft) && (submit || state.approvalMode === "approval")
+            ? "review"
+            : "collecting",
       };
       state.reply =
         state.phase === "review"
           ? reviewText(state)
           : "Complete the details before saving.";
+      if (
+        submit &&
+        state.phase === "review" &&
+        state.approvalMode === "autonomous"
+      )
+        state = await saveDraft(tx, state, row.businessId, "form");
       return persist();
     }
     if (action !== "turn")
@@ -403,8 +454,24 @@ conversationRoutes.all("/:id/:action?", async (c) => {
           "The draft changed while understanding your entry. Review the latest version.",
           409,
         );
-      const state: Conversation = {
+      const activeSession = await tx.execute(
+        sql`select id from munim_auth_session where id=${row.authSessionId} and "expiresAt">now()`,
+      );
+      if (!activeSession.rowCount || row.expiresAt < new Date())
+        throw new ConversationError(
+          "Sign in again to continue this conversation.",
+          401,
+        );
+      const currentPreferences = await readPreferences(
+        tx,
+        row.businessId,
+        true,
+      );
+      let state: Conversation = {
         ...latest,
+        language: currentPreferences.language ?? latest.language,
+        approvalMode: currentPreferences.approvalMode ?? "approval",
+        replyLanguage: result.language,
         draft: result.kind === "proposal" ? result.draft : latest.draft,
         revision: latest.revision + 1,
         phase:
@@ -420,9 +487,13 @@ conversationRoutes.all("/:id/:action?", async (c) => {
           : state.phase === "review"
             ? reviewText(state, result.language)
             : result.question ||
-              (state.language === "en"
-                ? "What happened, and was it paid or still due?"
-                : "क्या लेन-देन हुआ और पैसे मिल गए या उधार है?");
+              clarificationText(state.draft, result.language);
+      if (
+        state.phase === "review" &&
+        state.approvalMode === "autonomous" &&
+        reserved.approvalMode === "autonomous"
+      )
+        state = await saveDraft(tx, state, row.businessId, turn.channel);
       state.messages = (
         [
           ...state.messages,
