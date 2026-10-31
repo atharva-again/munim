@@ -23,7 +23,10 @@ import {
   LogOut,
   X,
 } from "lucide-react";
-import type { LedgerSummary, Transaction } from "@munim/contracts";
+import type {
+  LedgerSummary,
+  Transaction,
+} from "@munim/contracts";
 import { authClient } from "./auth-client";
 import { api, formatRupees, type ApiHealth } from "./api";
 import { TransactionList } from "./TransactionList";
@@ -35,15 +38,17 @@ import {
   primaryClass,
 } from "./ui";
 
-const loadDialog = () =>
-  import("./TransactionDialog").then((module) => ({
-    default: module.TransactionDialog,
-  }));
-const TransactionDialog = lazy(loadDialog);
+const loadRecord = () => import("./RecordView");
+const RecordView = lazy(loadRecord);
 const MemoryView = lazy(() => import("./MemoryView"));
 const TransactionsView = lazy(() => import("./TransactionsView"));
 const InsightsView = lazy(() => import("./InsightsView"));
-type View = "overview" | "transactions" | "insights" | "memory";
+type View =
+  | "overview"
+  | "transactions"
+  | "insights"
+  | "memory"
+  | "record";
 const navigation = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
   { id: "transactions", label: "Transactions", Icon: ListOrdered },
@@ -64,6 +69,10 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
 });
 export default function App() {
   const [view, setView] = useState<View>("overview");
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [view]);
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     document.documentElement.dataset.theme === "dark" ? "dark" : "light",
   );
@@ -72,7 +81,11 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [recordVisited, setRecordVisited] = useState(false);
+  const openRecord = () => {
+    setRecordVisited(true);
+    setView("record");
+  };
   const [paymentBusyId, setPaymentBusyId] = useState("");
   const [toast, setToast] = useState<{
     message: string;
@@ -231,9 +244,10 @@ export default function App() {
           type="button"
           className={`${primaryClass} mt-7 w-full`}
           aria-label="Record Transaction"
-          onPointerEnter={() => void loadDialog()}
-          onFocus={() => void loadDialog()}
-          onClick={() => setDialogOpen(true)}
+          aria-current={view === "record" ? "page" : undefined}
+          onPointerEnter={() => void loadRecord()}
+          onFocus={() => void loadRecord()}
+          onClick={openRecord}
         >
           <Plus size={16} />
           <span>Record Transaction</span>
@@ -294,6 +308,7 @@ export default function App() {
       </aside>
       <main className="flex h-full flex-col overflow-hidden pb-17 md:ml-52 md:pb-0 lg:ml-57">
         <div
+          ref={contentRef}
           className={`mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col gap-5 px-5 py-5 lg:px-10 ${view === "overview" ? "overflow-hidden gap-[clamp(10px,2dvh,20px)]" : "overflow-y-auto lg:py-8"}`}
         >
           {apiError && (
@@ -320,8 +335,11 @@ export default function App() {
             ) : view === "transactions" ? (
               <TransactionsView {...listProps} />
             ) : view === "insights" ? (
-              <InsightsView version={lastUpdated?.getTime() ?? 0} onRecord={() => setDialogOpen(true)} />
-            ) : (
+              <InsightsView
+                version={lastUpdated?.getTime() ?? 0}
+                onRecord={openRecord}
+              />
+            ) : view === "overview" ? (
               <>
                 <header className="flex shrink-0 items-center justify-between gap-4">
                   <div>
@@ -453,8 +471,18 @@ export default function App() {
                   />
                 </section>
               </>
-            )}
+            ) : null}
           </Suspense>
+          {recordVisited && (
+            <div className={view === "record" ? "min-h-0 flex-1" : "hidden"}>
+              <Suspense fallback={<LoadingRows />}>
+                <RecordView
+                  visible={view === "record"}
+                  onSaved={transactionSaved}
+                />
+              </Suspense>
+            </div>
+          )}
         </div>
       </main>
       <nav
@@ -474,15 +502,20 @@ export default function App() {
               strokeWidth={1.5}
               className={view === item.id ? "text-fg" : ""}
             />
-            {item.id === "memory" ? "Memory" : item.id === "transactions" ? "Ledger" : item.label}
+            {item.id === "memory"
+              ? "Memory"
+              : item.id === "transactions"
+                ? "Ledger"
+                : item.label}
           </button>
         ))}
         <button
           type="button"
           aria-label="Record Transaction"
-          onPointerEnter={() => void loadDialog()}
-          onFocus={() => void loadDialog()}
-          onClick={() => setDialogOpen(true)}
+          aria-current={view === "record" ? "page" : undefined}
+          onPointerEnter={() => void loadRecord()}
+          onFocus={() => void loadRecord()}
+          onClick={openRecord}
           className="grid justify-items-center gap-1 py-1.5 text-[10px] text-fg"
         >
           <Plus size={18} strokeWidth={1.5} />
@@ -504,24 +537,6 @@ export default function App() {
           {theme === "dark" ? "Light Mode" : "Dark Mode"}
         </button>
       </nav>
-      {dialogOpen && (
-        <Suspense
-          fallback={
-            <div
-              role="status"
-              className="fixed inset-0 z-20 grid place-items-center bg-canvas/90"
-            >
-              Opening Transaction Form…
-            </div>
-          }
-        >
-          <TransactionDialog
-            open={dialogOpen}
-            onOpenChange={setDialogOpen}
-            onSaved={transactionSaved}
-          />
-        </Suspense>
-      )}
       {toast && (
         <div
           role="status"

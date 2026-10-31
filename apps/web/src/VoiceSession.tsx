@@ -30,7 +30,9 @@ export default function VoiceSession({
   onActiveRef.current = onActiveChange;
   useEffect(
     () => () => {
-      void roomRef.current?.disconnect();
+      const room = roomRef.current;
+      roomRef.current = null;
+      void room?.disconnect();
       onActiveRef.current(false);
     },
     [],
@@ -139,7 +141,15 @@ export default function VoiceSession({
         return;
       }
       await room.startAudio();
+      if (roomRef.current !== room) {
+        await room.disconnect();
+        return;
+      }
       await room.localParticipant.setMicrophoneEnabled(true);
+      if (roomRef.current !== room) {
+        await room.disconnect();
+        return;
+      }
       onActiveRef.current(true);
       setMuted(false);
       agentTimeout = setTimeout(
