@@ -4,8 +4,10 @@ Munim is a mobile-first financial operator for small businesses. The current ver
 
 ## Stack
 
-- React, Vite, TypeScript, custom CSS, and Base UI
-- Hono on Node.js
+- React, Vite, TypeScript, Tailwind CSS v4, and Base UI
+- Hono and LiveKit Agents on Node.js
+- Better Auth with Google-only sign-in
+- Sarvam realtime speech and Gemini tool calling
 - YugabyteDB YSQL through `pg` and Drizzle ORM
 - Meko MCP for business memory
 - Razorpay Test Mode for payment links and webhook-driven settlement
@@ -23,16 +25,61 @@ Set `DATABASE_URL` to a **development/test** YugabyteDB YSQL connection string i
 
 ```sh
 pnpm db:push
+pnpm db:migrate
 pnpm dev
 ```
 
 The web app is served at `http://localhost:5173`; the API is at `http://localhost:3001`. The UI does not seed or display sample transactions: it remains empty until connected to a database and given real entries.
 
-## Integrations
+## Google Sign-In
 
-- **YugabyteDB:** Set `DATABASE_URL`. `MUNIM_BUSINESS_ID` scopes this single-workspace MVP; there is no authentication or multi-user isolation yet. Do not expose this deployment publicly with real business data.
-- **Meko:** Set server-side `MEKO_API_KEY` and `MEKO_DATAPACK_ID`. `MEKO_MCP_URL` defaults to `https://mcp.mekodata.ai/mcp`. The Memory page performs live searches and writes against that datapack; the transaction review can explicitly look up relevant shop context before confirmation.
-- **Razorpay:** Use only Test Mode values for `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`; the API rejects key IDs that are not prefixed `rzp_test_`. Configure `RAZORPAY_WEBHOOK_SECRET` and point the Razorpay test webhook at `POST /api/webhooks/razorpay` for `payment_link.paid`. Settlement is recorded only after signature verification.
-- **Voice:** STT is intentionally not enabled yet. `STT_PROVIDER` and `STT_API_KEY` alone do not activate capture; an actual provider adapter still needs to be selected and implemented.
+The app requires Google sign-in through Better Auth. There is no password login or development authentication bypass.
 
-Never commit `.env` or use live payment credentials in this hackathon build.
+Set `BETTER_AUTH_URL` to the browser origin (`http://localhost:5173` in development), generate a random `BETTER_AUTH_SECRET` of at least 32 characters, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Register this redirect URI in Google Cloud:
+
+```
+http://localhost:5173/api/auth/callback/google
+```
+
+For production use the HTTPS app origin and its corresponding callback URL. Keep the frontend and `/api` on the same origin.
+
+Set `MUNIM_OWNER_EMAIL` to the verified Google email that owns the existing ledger. That account retains `MUNIM_BUSINESS_ID` and access to the shared Meko and Razorpay configuration. Other accounts receive separate empty ledgers; their Meko and collection integrations remain unavailable. Existing records are never assigned to whoever signs in first.
+
+Run `pnpm db:migrate` to create the namespaced Better Auth and conversation tables. This additive migration preserves ledger records. `pnpm db:push` is only for initial ledger setup; use the migration command when upgrading this build.
+
+## Voice, Text, and Form
+
+Record Transaction opens with Voice first, followed by Text and Form. All three update the same backend draft. Voice is a continuous, interruptible session after the user starts it once. Leaving voice mode or closing the dialog disconnects the microphone. The form works without speech or language-model credentials; no financial choices are preselected.
+
+Set the LiveKit, Sarvam, and Gemini variables in `.env.example`, then run:
+
+```sh
+pnpm voice:download
+pnpm dev
+# In another terminal:
+pnpm voice:dev
+```
+
+Production: run the web/API deployment and the persistent Node voice worker separately (`pnpm voice:start` after `pnpm build`). The worker must reach `MUNIM_API_URL`; LiveKit requires its own Cloud project. A short-lived, room-scoped token is issued by the authenticated API. The worker is explicitly dispatched as `munim`; it cannot access unrelated ledgers. Microphone capture requires HTTPS or localhost. Sessions end after 20 minutes.
+
+The pipeline uses Sarvam `saaras:v4` realtime STT with partial transcripts, Gemini `gemini-3.8-flash` with narrowly scoped proposal and memory tools, and streaming Sarvam `bulbul:v4-flash` TTS. Models and the TTS persona are environment-configurable. These are integration defaults, not measured winners on shop audio. The Sarvam account needs realtime STT access. A small TypeScript adapter uses Sarvam's new endpoint because the current LiveKit Node plugin only exposes legacy STT. The official plugin also lacks the current TTS model in its types.
+
+The model proposes drafts and asks clarifying questions. It has no ledger-write tool. The backend validates direction, integer paise, paid amounts, and counterparty for credit. Part payments create a matching settlement for the paid portion. Payment method is optional. Applying a new payment to an older due is not implemented; the assistant must explain that limitation rather than invent a second sale.
+
+Before saving, Munim reads back the exact draft. Spoken confirmation is accepted only for a complete, current review whose audio finished without interruption. On-screen confirmation requires the displayed review. Edits invalidate that review. An exact short affirmative such as “yes” or “हाँ” can confirm; a correction such as “haan lekin 550” cannot. Unsupported or ambiguous confirmation wording triggers clarification. Completed user turns are processed once; speculative generation is disabled around these financial actions.
+
+Drafts and original finalized transcripts are stored in the database for 12 hours; expired conversations are removed when a new entry starts. Ledger entries remain. Raw microphone audio is not stored by Munim and LiveKit session recording is disabled; provider processing/retention policies still apply. Conversation capabilities expire and are checked against the original Better Auth session, so signing out revokes access. A transaction and its settlement commit atomically; concurrent confirmations reuse one transaction identity. Speech playback failure cannot repeat the ledger write.
+
+Text and form requests preserve the draft when switching modes within the dialog. Closing and reopening starts a new entry. If a response is lost, the current session state can be refreshed; no automatic claim of success is made before database commit.
+
+## Other Integrations
+
+- **YugabyteDB:** `DATABASE_URL` must point to a development/test YSQL cluster. Ledgers and conversations are scoped to the authenticated account.
+- **Meko:** Set `MEKO_API_KEY`, `MEKO_DATAPACK_ID`, and optionally `MEKO_MCP_URL`. Shared business memory is available only to the configured owner. Tool results are context, never payment evidence.
+- **Razorpay:** Test Mode only. Live key IDs remain blocked. Set `RAZORPAY_WEBHOOK_SECRET` and subscribe the public `POST /api/webhooks/razorpay` endpoint to `payment_link.paid`. A signed event updates the linked owner's transaction; it does not verify unrelated QR, cash or bank payments. Production onboarding and payment matching are separate work.
+
+## Verification
+
+`pnpm build` checks contracts, API, voice worker and web. No automated test suite is included.
+
+Live STT accuracy, Hindi/Hinglish conversation, interrupted audio, TTS voices, provider latency, and real Google OAuth still require configured accounts and a browser with microphone access. A successful build does not establish speech accuracy or latency. Never commit `.env` or use live payment credentials in this build.
