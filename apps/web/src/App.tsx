@@ -12,6 +12,7 @@ import {
   BookOpenText,
   Check,
   CircleHelp,
+  ChartNoAxesCombined,
   FileClock,
   Landmark,
   LayoutDashboard,
@@ -41,10 +42,12 @@ const loadDialog = () =>
 const TransactionDialog = lazy(loadDialog);
 const MemoryView = lazy(() => import("./MemoryView"));
 const TransactionsView = lazy(() => import("./TransactionsView"));
-type View = "overview" | "transactions" | "memory";
+const InsightsView = lazy(() => import("./InsightsView"));
+type View = "overview" | "transactions" | "insights" | "memory";
 const navigation = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
   { id: "transactions", label: "Transactions", Icon: ListOrdered },
+  { id: "insights", label: "Insights", Icon: ChartNoAxesCombined },
   { id: "memory", label: "Business Memory", Icon: BookOpenText },
 ] satisfies { id: View; label: string; Icon: typeof LayoutDashboard }[];
 const emptySummary: LedgerSummary = {
@@ -316,6 +319,8 @@ export default function App() {
               <MemoryView configured={health?.meko === "configured"} />
             ) : view === "transactions" ? (
               <TransactionsView {...listProps} />
+            ) : view === "insights" ? (
+              <InsightsView version={lastUpdated?.getTime() ?? 0} onRecord={() => setDialogOpen(true)} />
             ) : (
               <>
                 <header className="flex shrink-0 items-center justify-between gap-4">
@@ -454,7 +459,7 @@ export default function App() {
       </main>
       <nav
         aria-label="Mobile Navigation"
-        className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-line bg-canvas px-2 pt-2 pb-[max(10px,env(safe-area-inset-bottom))] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-line bg-canvas px-2 pt-2 pb-[max(10px,env(safe-area-inset-bottom))] md:hidden"
       >
         {navigation.map((item) => (
           <button
@@ -469,7 +474,7 @@ export default function App() {
               strokeWidth={1.5}
               className={view === item.id ? "text-fg" : ""}
             />
-            {item.id === "memory" ? "Memory" : item.label}
+            {item.id === "memory" ? "Memory" : item.id === "transactions" ? "Ledger" : item.label}
           </button>
         ))}
         <button

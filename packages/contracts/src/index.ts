@@ -158,3 +158,75 @@ export function validateDraft(draft: TransactionDraft) {
     return null;
   return input;
 }
+
+export const insightPeriodSchema = z.enum(["7", "30", "90"]);
+export const insightAgeSchema = z.enum(["all", "under7", "7to29", "30plus"]);
+export const insightQuerySchema = z.object({
+  period: insightPeriodSchema.default("30"),
+  direction: z.enum(["inflow", "outflow"]).default("inflow"),
+  age: insightAgeSchema.default("all"),
+  page: z.coerce.number().int().min(0).max(100000).default(0),
+});
+const insightMoneySchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const insightCountSchema = z.number().int().nonnegative();
+const paymentTotalsSchema = z.object({
+  receivedPaise: insightMoneySchema,
+  paidPaise: insightMoneySchema,
+  paymentCount: insightCountSchema,
+});
+export const insightsSchema = z.object({
+  asOf: z.string().datetime(),
+  ledgerEntryCount: insightCountSchema,
+  period: z.object({
+    days: z.number().int(),
+    from: z.string().datetime(),
+    to: z.string().datetime(),
+    previousFrom: z.string().datetime(),
+    previousTo: z.string().datetime(),
+  }),
+  activity: z.object({
+    current: paymentTotalsSchema,
+    previous: paymentTotalsSchema,
+  }),
+  outflows: z.array(
+    z.object({
+      kind: transactionKindSchema,
+      amountPaise: insightMoneySchema,
+      paymentCount: insightCountSchema,
+    }),
+  ),
+  outstanding: z.object({
+    receivePaise: insightMoneySchema,
+    payPaise: insightMoneySchema,
+    receiveCount: insightCountSchema,
+    payCount: insightCountSchema,
+    aging: z.array(
+      z.object({
+        bucket: z.enum(["under7", "7to29", "30plus"]),
+        receivePaise: insightMoneySchema,
+        payPaise: insightMoneySchema,
+      }),
+    ),
+  }),
+  entries: z.object({
+    total: insightCountSchema,
+    page: insightCountSchema,
+    pageSize: z.literal(20),
+    items: z.array(
+      z.object({
+        id: z.string().uuid(),
+        kind: transactionKindSchema,
+        direction: z.enum(["inflow", "outflow"]),
+        description: z.string(),
+        counterparty: z.string(),
+        amountPaise: insightMoneySchema,
+        paidPaise: insightMoneySchema,
+        remainingPaise: insightMoneySchema,
+        occurredAt: z.string().datetime({ offset: true }),
+        ageDays: insightCountSchema,
+      }),
+    ),
+  }),
+});
+export type InsightQuery = z.infer<typeof insightQuerySchema>;
+export type Insights = z.infer<typeof insightsSchema>;

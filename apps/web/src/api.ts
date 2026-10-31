@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { ledgerSummarySchema, transactionSchema } from "@munim/contracts";
+import {
+  insightsSchema,
+  ledgerSummarySchema,
+  transactionSchema,
+  type InsightQuery,
+} from "@munim/contracts";
 const healthSchema = z.object({
   service: z.string(),
   database: z.enum(["connected", "not_configured", "unreachable"]),
@@ -32,6 +37,12 @@ async function request<T>(
 }
 const memoryResultSchema = z.object({ result: z.unknown() });
 export const api = {
+  insights: (query: InsightQuery, signal: AbortSignal) =>
+    request(
+      `/api/insights?${new URLSearchParams({ period: query.period, direction: query.direction, age: query.age, page: String(query.page) })}`,
+      insightsSchema,
+      { signal },
+    ),
   health: () => request("/api/health", healthSchema),
   summary: () => request("/api/ledger/summary", ledgerSummarySchema),
   transactions: () =>

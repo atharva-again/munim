@@ -1,11 +1,12 @@
 import { config } from "dotenv";
 import { getAuth, type ApiEnv } from "./auth.js";
+import { readInsights } from "./services/insights.js";
 import { conversationRoutes } from "./conversations.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { ledgerSummarySchema } from "@munim/contracts";
+import { insightQuerySchema, ledgerSummarySchema } from "@munim/contracts";
 import { businessId, getDatabase, getPool } from "./db/index.js";
 import {
   isMekoConfigured,
@@ -100,6 +101,20 @@ app.get("/api/health", async (c) => {
         ? razorpayStatus()
         : "not_configured",
   });
+});
+
+app.get("/api/insights", async (c) => {
+  const db = getDatabase();
+  if (!db) return unavailable(c, "Connect your ledger to view insights.");
+  const query = insightQuerySchema.safeParse(c.req.query());
+  if (!query.success)
+    return c.json({ error: "Choose a valid insights period and filter." }, 400);
+  try {
+    return c.json(await readInsights(db, c.get("businessId"), query.data));
+  } catch (error) {
+    console.error("[insights-read]", error);
+    return c.json({ error: "Could not load insights. Please try again." }, 503);
+  }
 });
 
 app.get("/api/ledger/summary", async (c) => {
