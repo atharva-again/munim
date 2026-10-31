@@ -21,7 +21,11 @@ import type { ApiEnv } from "./auth.js";
 import { getDatabase } from "./db/index.js";
 import { conversations } from "./db/schema.js";
 import { insertTransaction } from "./services/ledger.js";
-import { interpret, interpreterConfigured } from "./services/interpreter.js";
+import {
+  interpret,
+  interpreterConfigured,
+  InterpreterError,
+} from "./services/interpreter.js";
 import {
   canConfirm,
   isConfirmation,
@@ -48,11 +52,13 @@ conversationRoutes.onError((error, c) => {
       { error: "Check the conversation request.", details: error.issues },
       400,
     );
+  if (error instanceof InterpreterError)
+    return c.json({ error: error.message }, 503);
   console.error("[conversation]", error);
   return c.json(
     {
       error:
-        error instanceof Error ? error.message : "Conversation unavailable.",
+        "Conversation unavailable. Your draft has not been confirmed; refresh it before retrying.",
     },
     503,
   );
@@ -121,12 +127,12 @@ conversationRoutes.all("/:id/:action?", async (c) => {
   if (!db) throw new ConversationError("Connect the ledger first.", 503);
   const id = z.string().uuid().parse(c.req.param("id"));
   const bearer = c.req.header("Authorization")?.replace(/^Bearer /, "") ?? "";
-  return db.transaction(async (tx) => {
-    const [row] = await tx
+  const operation = await db.transaction(async (tx) => {
+    const query = tx
       .select()
       .from(conversations)
-      .where(eq(conversations.id, id))
-      .for("update");
+      .where(eq(conversations.id, id));
+    const [row] = await (c.req.method === "GET" ? query : query.for("update"));
     if (!row) throw new ConversationError("Conversation not found.", 404);
     const actual = hash(bearer),
       expected = Buffer.from(row.tokenHash, "hex");
@@ -205,7 +211,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         !interpreterConfigured()
       )
         throw new ConversationError(
-          "Voice is not configured yet. Add the LiveKit, Sarvam and Gemini credentials.",
+          "Voice is not configured yet. Add the LiveKit, Sarvam and Groq credentials.",
           503,
         );
       state.voiceReviewedRevision = null;
@@ -300,28 +306,32 @@ conversationRoutes.all("/:id/:action?", async (c) => {
     ) {
       await commit(turn.revision, turn.channel);
     } else {
-      const result = await interpret(state, turn.text, row.businessId);
       state = {
         ...state,
-        draft: result.draft,
         revision: state.revision + 1,
+        phase: "collecting",
         reviewedRevision: null,
         voiceReviewedRevision: null,
-        phase:
-          !result.question && validateDraft(result.draft)
-            ? "review"
-            : "collecting",
+        reply: "Understanding your entry…",
+        messages: (
+          [
+            ...state.messages,
+            {
+              role: "user",
+              text: turn.text,
+              channel: turn.channel,
+              at: new Date().toISOString(),
+            },
+          ] satisfies Conversation["messages"]
+        ).slice(-60),
       };
-      state.reply =
-        state.phase === "review"
-          ? reviewText(
-              state,
-              /[\u0900-\u097f]|\b(hai|haan|diye|udhaar|rupaye|ka|ko)\b/i.test(
-                turn.text,
-              ),
-            )
-          : result.question ||
-            "What was the amount, and was it paid or still due?";
+      await persist();
+      return {
+        kind: "interpret" as const,
+        state,
+        turn,
+        businessId: row.businessId,
+      };
     }
     state.messages = (
       [
@@ -346,4 +356,91 @@ conversationRoutes.all("/:id/:action?", async (c) => {
     ]);
     return persist();
   });
+  if (operation instanceof Response) return operation;
+  const { state: reserved, turn } = operation;
+  try {
+    const result = await interpret(reserved, turn.text, operation.businessId);
+    return await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, id))
+        .for("update");
+      if (!row)
+        throw new ConversationError(
+          "Conversation expired. Start a new one.",
+          410,
+        );
+      const latest = conversationSchema.parse(row.state);
+      if (
+        latest.revision !== reserved.revision ||
+        latest.phase !== "collecting"
+      )
+        throw new ConversationError(
+          "The draft changed while understanding your entry. Review the latest version.",
+          409,
+        );
+      const state: Conversation = {
+        ...latest,
+        draft: result.draft,
+        revision: latest.revision + 1,
+        phase:
+          !result.question && validateDraft(result.draft)
+            ? "review"
+            : "collecting",
+      };
+      state.reply =
+        state.phase === "review"
+          ? reviewText(
+              state,
+              /[\u0900-\u097f]|\b(hai|haan|diye|udhaar|rupaye|ka|ko)\b/i.test(
+                turn.text,
+              ),
+            )
+          : result.question ||
+            "What was the amount, and was it paid or still due?";
+      state.messages = (
+        [
+          ...state.messages,
+          {
+            role: "assistant",
+            text: state.reply,
+            channel: turn.channel,
+            at: new Date().toISOString(),
+          },
+        ] satisfies Conversation["messages"]
+      ).slice(-60);
+      const receipts = Object.fromEntries([
+        ...Object.entries(receiptsSchema.parse(row.receipts)).slice(-31),
+        [turn.requestId, state],
+      ]);
+      await tx
+        .update(conversations)
+        .set({ state, receipts })
+        .where(eq(conversations.id, id));
+      return c.json(state);
+    });
+  } catch (error) {
+    await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, id))
+        .for("update");
+      if (!row) return;
+      const latest = conversationSchema.parse(row.state);
+      if (latest.revision !== reserved.revision) return;
+      await tx
+        .update(conversations)
+        .set({
+          state: {
+            ...latest,
+            reply:
+              "I could not finish understanding that entry. Your draft is unchanged; please try again or use the form.",
+          },
+        })
+        .where(eq(conversations.id, id));
+    });
+    throw error;
+  }
 });

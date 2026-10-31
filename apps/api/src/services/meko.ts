@@ -17,6 +17,7 @@ export class MekoConfigurationError extends Error {
 export async function callMekoTool(
   name: string,
   args: Record<string, unknown>,
+  signal: AbortSignal = AbortSignal.timeout(15_000),
 ): Promise<unknown> {
   const apiKey = process.env.MEKO_API_KEY;
   const datapackId = process.env.MEKO_DATAPACK_ID;
@@ -27,6 +28,7 @@ export async function callMekoTool(
     new URL(process.env.MEKO_MCP_URL ?? "https://mcp.mekodata.ai/mcp"),
     {
       requestInit: {
+        signal,
         headers: { Authorization: `Bearer ${apiKey}` },
       },
     },
@@ -50,4 +52,3 @@ export async function callMekoTool(
     await client.close();
   }
 }
-
