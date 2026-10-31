@@ -19,13 +19,11 @@ import {
   Moon,
   Plus,
   Sun,
+  LogOut,
   X,
 } from "lucide-react";
-import type {
-  CreateTransactionInput,
-  LedgerSummary,
-  Transaction,
-} from "@munim/contracts";
+import type { LedgerSummary, Transaction } from "@munim/contracts";
+import { authClient } from "./auth-client";
 import { api, formatRupees, type ApiHealth } from "./api";
 import { TransactionList } from "./TransactionList";
 import {
@@ -72,7 +70,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [paymentBusyId, setPaymentBusyId] = useState("");
   const [toast, setToast] = useState<{
     message: string;
@@ -161,19 +158,10 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const saveTransaction = async (input: CreateTransactionInput) => {
-    setSaving(true);
-    try {
-      await api.createTransaction(input);
-      setToast({
-        message: "Transaction saved to the ledger.",
-        tone: "success",
-      });
-      await pendingRefresh.current;
-      await refresh(true);
-    } finally {
-      setSaving(false);
-    }
+  const transactionSaved = async () => {
+    setToast({ message: "Transaction saved to the ledger.", tone: "success" });
+    await pendingRefresh.current;
+    await refresh(true);
   };
 
   const createPaymentLink = async (transaction: Transaction) => {
@@ -275,6 +263,13 @@ export default function App() {
         <div className="mt-auto border-t border-line pt-3">
           <button
             type="button"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-xs text-muted hover:bg-soft hover:text-fg"
+            onClick={() => void authClient.signOut()}
+          >
+            <LogOut size={18} strokeWidth={1.6} /> Sign Out
+          </button>
+          <button
+            type="button"
             role="switch"
             aria-checked={theme === "dark"}
             aria-label="Dark Mode"
@@ -330,6 +325,14 @@ export default function App() {
                       A clear view of the money moving through your business.
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    className={`${iconButtonClass} md:hidden`}
+                    aria-label="Sign Out"
+                    onClick={() => void authClient.signOut()}
+                  >
+                    <LogOut size={17} />
+                  </button>
                   <span className="hidden text-[11px] text-muted lg:block">
                     {lastUpdated
                       ? dateFormatter.format(lastUpdated)
@@ -510,9 +513,7 @@ export default function App() {
           <TransactionDialog
             open={dialogOpen}
             onOpenChange={setDialogOpen}
-            onSave={saveTransaction}
-            saving={saving}
-            mekoConfigured={health?.meko === "configured"}
+            onSaved={transactionSaved}
           />
         </Suspense>
       )}
