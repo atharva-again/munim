@@ -136,7 +136,12 @@ const storedLanguageSchema = z.union([
 ]);
 export const voiceActivitySchema = z.object({
   id: z.string().uuid(),
-  state: z.enum(["processing", "ready", "error"]),
+  state: z.enum(["processing", "ready", "error", "audio-error"]),
+});
+export const voiceCaptionSchema = z.object({
+  id: z.string().uuid(),
+  role: z.enum(["user", "assistant"]),
+  text: z.string().max(4000),
 });
 export const conversationSchema = z
   .object({

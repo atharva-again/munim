@@ -54,12 +54,12 @@ class SarvamSpeechStream extends stt.SpeechStream {
       model: this.providerSTT.model,
       language_code: "auto",
       mode: "transcribe",
-      stream_type: "fast",
+      stream_type: "balanced",
       encoding: "linear16",
       sample_rate: "16000",
       endpointing: "vad",
       silence_duration_ms: "800",
-      threshold: "0.5",
+      threshold: "0.6",
       min_speech_duration_ms: "300",
     }).toString();
     const ws = new WebSocket(url, {
@@ -148,7 +148,7 @@ class SarvamSpeechStream extends stt.SpeechStream {
 export class SarvamStreamingTTS extends tts.TTS {
   label = "munim.SarvamStreamingTTS";
   constructor(readonly apiKey: string) {
-    super(24000, 1, { streaming: false });
+    super(24000, 1, { streaming: true });
   }
   override get model() {
     return process.env.SARVAM_TTS_MODEL || "bulbul:v4-flash";
@@ -159,8 +159,45 @@ export class SarvamStreamingTTS extends tts.TTS {
   synthesize(text: string, options?: APIConnectOptions, signal?: AbortSignal) {
     return new SarvamAudioStream(text, this, options, signal);
   }
-  stream(): tts.SynthesizeStream {
-    throw new Error("Use the LiveKit sentence stream adapter.");
+  stream(options?: { connOptions?: APIConnectOptions }): tts.SynthesizeStream {
+    return new SarvamUtteranceStream(this, options?.connOptions);
+  }
+}
+class SarvamUtteranceStream extends tts.SynthesizeStream {
+  label = "munim.SarvamUtteranceStream";
+  protected override emitMetrics = false;
+  constructor(
+    private readonly providerTTS: SarvamStreamingTTS,
+    options?: APIConnectOptions,
+  ) {
+    super(providerTTS, options);
+  }
+  protected async run() {
+    let text = "";
+    for await (const input of this.input) {
+      if (this.abortSignal.aborted) return;
+      if (input !== SarvamUtteranceStream.FLUSH_SENTINEL) {
+        text += input;
+        continue;
+      }
+      if (!text.trim()) continue;
+      const audio = this.providerTTS.synthesize(
+        text,
+        this.connOptions,
+        this.abortSignal,
+      );
+      try {
+        for await (const frame of audio) {
+          if (this.abortSignal.aborted) return;
+          this.queue.put(frame);
+        }
+        if (audio.error) throw audio.error;
+      } finally {
+        audio.close();
+      }
+      text = "";
+      this.queue.put(tts.SynthesizeStream.END_OF_STREAM);
+    }
   }
 }
 class SarvamAudioStream extends tts.ChunkedStream {
@@ -199,7 +236,7 @@ class SarvamAudioStream extends tts.ChunkedStream {
     );
     if (!response.ok || !response.body)
       throw new Error(`Speech synthesis unavailable (${response.status}).`);
-    const stream = new AudioByteStream(24000, 1),
+    const stream = new AudioByteStream(24000, 1, 480),
       requestId = randomUUID();
     const reader = response.body.getReader();
     let last: tts.SynthesizedAudio | undefined;

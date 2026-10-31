@@ -12,12 +12,14 @@ import {
 } from "@livekit/agents";
 import { RoomEvent } from "@livekit/rtc-node";
 import * as silero from "@livekit/agents-plugin-silero";
+import { NoiseCancellation } from "@livekit/noise-cancellation-node";
 import {
   conversationSchema,
   greetingFor,
   type Conversation,
   type PreferredLanguage,
   type voiceActivitySchema,
+  type voiceCaptionSchema,
 } from "@munim/contracts";
 import { SarvamRealtimeSTT, SarvamStreamingTTS } from "./sarvam.js";
 config({ path: "../../.env" });
@@ -34,11 +36,15 @@ const failures: Record<PreferredLanguage, string> = {
 class MunimAgent extends voice.Agent {
   private language: PreferredLanguage = "en";
   private announcedEntry: string | null = null;
+  private inputVersion = 0;
   constructor(
     private readonly connection: z.infer<typeof metadataSchema>,
     private readonly publish: {
       conversation: (state: Conversation) => Promise<void>;
       activity: (state: Activity) => Promise<void>;
+      caption: (
+        caption: Pick<z.infer<typeof voiceCaptionSchema>, "role" | "text">,
+      ) => Promise<void>;
     },
   ) {
     super({
@@ -68,18 +74,42 @@ class MunimAgent extends voice.Agent {
     return state;
   }
   async screenSaved() {
+    const inputVersion = this.inputVersion;
     const state = await this.request();
-    if (state.phase !== "saved" || state.transactionId === this.announcedEntry)
+    if (
+      state.phase !== "saved" ||
+      state.transactionId === this.announcedEntry ||
+      inputVersion !== this.inputVersion
+    )
       return;
     this.announcedEntry = state.transactionId;
     await this.session.interrupt({ force: true }).await;
-    const speech = this.session.say(state.reply, { allowInterruptions: true });
+    await this.speak(state.reply, inputVersion);
+  }
+  async heard(text: string) {
+    this.inputVersion += 1;
+    await this.publish.caption({ role: "user", text });
+  }
+  async speak(text: string, inputVersion = this.inputVersion) {
+    if (inputVersion !== this.inputVersion) return null;
+    await this.publish.caption({ role: "assistant", text }).catch(() => {});
+    if (inputVersion !== this.inputVersion) return null;
+    const speech = this.session.say(text, { allowInterruptions: true });
     await speech.waitForPlayout();
+    const failure = speech.exception();
+    console.info("[voice-playback]", {
+      conversationId: this.connection.id,
+      interrupted: speech.interrupted,
+      failed: Boolean(failure),
+    });
+    if (failure) await this.publish.activity("audio-error").catch(() => {});
+    return speech;
   }
   override async onUserTurnCompleted(
     _context: llm.ChatContext,
     message: llm.ChatMessage,
   ) {
+    const inputVersion = this.inputVersion;
     try {
       await this.publish.activity("processing").catch(() => {});
       const before = await this.request();
@@ -97,11 +127,9 @@ class MunimAgent extends voice.Agent {
         );
       if (state.phase === "review" && this.announcedEntry === state.entryId)
         throw new voice.StopResponse();
-      const speech = this.session.say(state.reply, {
-        allowInterruptions: true,
-      });
-      await speech.waitForPlayout();
+      const speech = await this.speak(state.reply, inputVersion);
       if (
+        speech &&
         !speech.interrupted &&
         !speech.exception() &&
         state.phase === "review"
@@ -117,7 +145,7 @@ class MunimAgent extends voice.Agent {
         error,
       });
       await this.publish.activity("error").catch(() => {});
-      this.session.say(failures[this.language]);
+      await this.speak(failures[this.language], inputVersion);
     } finally {
       await this.publish.activity("ready").catch(() => {});
     }
@@ -154,6 +182,8 @@ export default defineAgent({
       conversation: (state) =>
         send("munim.conversation", { id: state.id, revision: state.revision }),
       activity: (state) => send("munim.voice", { id: metadata.id, state }),
+      caption: (caption) =>
+        send("munim.caption", { id: metadata.id, ...caption }),
     });
     const initialState = await agent.request();
     const session = new voice.AgentSession({
@@ -168,9 +198,25 @@ export default defineAgent({
       turnHandling: {
         turnDetection: "stt",
         preemptiveGeneration: { enabled: false },
-        interruption: { enabled: true, mode: "vad", minDuration: 500 },
+        interruption: {
+          enabled: true,
+          mode: "vad",
+          minDuration: 650,
+          minWords: 1,
+          falseInterruptionTimeout: 1200,
+          resumeFalseInterruption: true,
+        },
         endpointing: { minDelay: 200, maxDelay: 1800 },
       },
+    });
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (event) => {
+      if (event.isFinal && event.transcript.trim())
+        void agent.heard(event.transcript).catch(() => {});
+    });
+    session.on(voice.AgentSessionEventTypes.AgentFalseInterruption, () => {
+      console.info("[voice-false-interruption]", {
+        conversationId: metadata.id,
+      });
     });
     ctx.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       if (participant.identity === `owner-${metadata.id}`) void session.close();
@@ -217,16 +263,17 @@ export default defineAgent({
         transcript: false,
         redaction: true,
       },
-      inputOptions: { textEnabled: false },
+      inputOptions: {
+        textEnabled: false,
+        noiseCancellation: NoiseCancellation(),
+      },
     });
     await send("munim.voice", { id: metadata.id, state: "ready" });
-    const greeting = session.say(greetingFor(initialState.language), {
-      allowInterruptions: true,
-    });
-    await greeting.waitForPlayout();
+    const greeting = await agent.speak(greetingFor(initialState.language));
     if (
       initialState.phase === "review" &&
       initialState.approvalMode === "approval" &&
+      greeting &&
       !greeting.interrupted &&
       !greeting.exception()
     ) {
@@ -235,9 +282,8 @@ export default defineAgent({
         current.phase === "review" &&
         current.revision === initialState.revision
       ) {
-        const review = session.say(current.reply, { allowInterruptions: true });
-        await review.waitForPlayout();
-        if (!review.interrupted && !review.exception())
+        const review = await agent.speak(current.reply);
+        if (review && !review.interrupted && !review.exception())
           await agent.request("reviewed", {
             revision: current.revision,
             channel: "voice",
