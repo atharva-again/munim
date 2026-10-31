@@ -1,0 +1,15 @@
+{
+  "name": "munim",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "dev": "pnpm --filter @munim/contracts build && concurrently --kill-others -n api,web -c cyan,green \"pnpm --filter @munim/api dev\" \"pnpm --filter @munim/web dev\"",
+    "build": "pnpm --filter @munim/contracts build && pnpm --filter @munim/api build && pnpm --filter @munim/web build",
+    "start": "pnpm --filter @munim/api start",
+    "db:push": "pnpm --filter @munim/api db:push"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.6"
+  }
+}
+
