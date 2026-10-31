@@ -4,12 +4,15 @@
   "packageManager": "pnpm@11.24.0",
   "scripts": {
     "dev": "pnpm --filter @munim/contracts build && concurrently --kill-others -n api,web -c cyan,green \"pnpm --filter @munim/api dev\" \"pnpm --filter @munim/web dev\"",
-    "build": "pnpm --filter @munim/contracts build && pnpm --filter @munim/api build && pnpm --filter @munim/web build",
+    "build": "pnpm --filter @munim/contracts build && pnpm --filter @munim/api build && pnpm --filter @munim/voice build && pnpm --filter @munim/web build",
     "start": "pnpm --filter @munim/api start",
-    "db:push": "pnpm --filter @munim/api db:push"
+    "db:push": "pnpm --filter @munim/api db:push",
+    "voice:dev": "pnpm --filter @munim/voice dev",
+    "voice:start": "pnpm --filter @munim/voice start",
+    "voice:download": "pnpm --filter @munim/voice download-files",
+    "db:migrate": "pnpm --filter @munim/api db:migrate"
   },
   "devDependencies": {
     "concurrently": "10.0.6"
   }
 }
-

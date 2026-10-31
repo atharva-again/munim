@@ -1,11 +1,14 @@
 import { config } from "dotenv";
+import { getAuth, accountBusinessId, type ApiEnv } from "./auth.js";
+import { conversationRoutes } from "./conversations.js";
+import { insertTransaction } from "./services/ledger.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { serve } from "@hono/node-server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import {
   createTransactionSchema,
+  validateDraft,
   ledgerSummarySchema,
 } from "@munim/contracts";
 import { businessId, getDatabase, getPool } from "./db/index.js";
@@ -24,8 +27,43 @@ import {
 config({ path: "../../.env" });
 config();
 
-const app = new Hono();
-const currentBusinessId = businessId();
+export const app = new Hono<ApiEnv>();
+app.get("/api/auth-status", (c) => c.json({ configured: Boolean(getAuth()) }));
+app.on(["GET", "POST"], "/api/auth/*", (c) => {
+  const auth = getAuth();
+  return auth
+    ? auth.handler(c.req.raw)
+    : c.json({ error: "Configure Google sign-in first." }, 503);
+});
+app.use("/api/*", async (c, next) => {
+  if (c.req.path === "/api/webhooks/razorpay") return next();
+  if (
+    /^\/api\/conversations\/[0-9a-f-]+(?:\/[^/]+)?$/.test(c.req.path) &&
+    c.req.header("Authorization")?.startsWith("Bearer ")
+  )
+    return next();
+  const auth = getAuth();
+  if (!auth) return c.json({ error: "Google sign-in is not configured." }, 503);
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session) return c.json({ error: "Sign in to continue." }, 401);
+  c.set("businessId", accountBusinessId(session.user));
+  c.set("authSessionId", session.session.id);
+  if (!["GET", "HEAD"].includes(c.req.method)) {
+    const origin = c.req.header("Origin");
+    if (origin && origin !== new URL(process.env.BETTER_AUTH_URL!).origin)
+      return c.json({ error: "Invalid origin." }, 403);
+  }
+  if (
+    c.req.path.startsWith("/api/memory/") &&
+    c.get("businessId") !== businessId()
+  )
+    return c.json(
+      { error: "Business memory is not configured for this account." },
+      403,
+    );
+  return next();
+});
+app.route("/api/conversations", conversationRoutes);
 
 function razorpayStatus() {
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -55,12 +93,17 @@ app.get("/api/health", async (c) => {
   return c.json({
     service: "munim-api",
     database,
-    meko: isMekoConfigured() ? "configured" : "not_configured",
-    speechToText:
-      process.env.STT_PROVIDER && process.env.STT_API_KEY
-        ? "adapter_pending"
+    meko:
+      c.get("businessId") === businessId() && isMekoConfigured()
+        ? "configured"
         : "not_configured",
-    razorpay: razorpayStatus(),
+    speechToText: process.env.SARVAM_API_KEY
+      ? "provider_selected"
+      : "not_configured",
+    razorpay:
+      c.get("businessId") === businessId()
+        ? razorpayStatus()
+        : "not_configured",
   });
 });
 
@@ -77,7 +120,7 @@ app.get("/api/ledger/summary", async (c) => {
       })
       .from(transactions)
       .leftJoin(settlements, eq(settlements.transactionId, transactions.id))
-      .where(eq(transactions.businessId, currentBusinessId))
+      .where(eq(transactions.businessId, c.get("businessId")))
       .groupBy(transactions.id);
 
     let settledInflowPaise = 0;
@@ -109,7 +152,10 @@ app.get("/api/ledger/summary", async (c) => {
   } catch (error) {
     console.error("[ledger-summary]", error);
     return c.json(
-      { error: "Could not read the ledger. Check the database schema and connection." },
+      {
+        error:
+          "Could not read the ledger. Check the database schema and connection.",
+      },
       503,
     );
   }
@@ -135,7 +181,7 @@ app.get("/api/transactions", async (c) => {
         paymentRequests,
         eq(paymentRequests.transactionId, transactions.id),
       )
-      .where(eq(transactions.businessId, currentBusinessId))
+      .where(eq(transactions.businessId, c.get("businessId")))
       .orderBy(desc(transactions.occurredAt))
       .limit(limit);
 
@@ -169,44 +215,22 @@ app.post("/api/transactions", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = createTransactionSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: "Check the transaction details.", details: parsed.error.issues }, 400);
+    return c.json(
+      { error: "Check the transaction details.", details: parsed.error.issues },
+      400,
+    );
   }
 
   const input = parsed.data;
-  const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date();
-
+  if (!validateDraft(input))
+    return c.json(
+      { error: "Check the direction, counterparty and paid amount." },
+      400,
+    );
   try {
-    const created = await db.transaction(async (tx) => {
-      const [entry] = await tx
-        .insert(transactions)
-        .values({
-          businessId: currentBusinessId,
-          kind: input.kind,
-          direction: input.direction,
-          amountPaise: input.amountPaise,
-          description: input.description,
-          counterparty: input.counterparty ?? "",
-          paymentMethod: input.paymentMethod,
-          settlementStatus: input.settlementStatus,
-          source: "manual",
-          occurredAt,
-        })
-        .returning();
-
-      if (input.settlementStatus === "settled" && input.direction !== "transfer") {
-        await tx.insert(settlements).values({
-          businessId: currentBusinessId,
-          transactionId: entry.id,
-          amountPaise: input.amountPaise,
-          direction: input.direction,
-          method: input.paymentMethod,
-          source: "manual",
-          occurredAt,
-        });
-      }
-
-      return entry;
-    });
+    const created = await db.transaction((tx) =>
+      insertTransaction(tx, input, c.get("businessId"), "manual"),
+    );
 
     return c.json(
       {
@@ -221,23 +245,37 @@ app.post("/api/transactions", async (c) => {
   } catch (error) {
     console.error("[transaction-create]", error);
     return c.json(
-      { error: "The transaction was not saved. Check the ledger connection and try again." },
+      {
+        error:
+          "The transaction was not saved. Check the ledger connection and try again.",
+      },
       503,
     );
   }
 });
 
 app.post("/api/payment-links/:transactionId", async (c) => {
+  if (c.get("businessId") !== businessId())
+    return unavailable(
+      c,
+      "Payment collection is not configured for this account.",
+    );
   const db = getDatabase();
   if (!db) return unavailable(c, "Connect YugabyteDB by setting DATABASE_URL.");
 
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   if (!keyId || !keySecret) {
-    return unavailable(c, "Add Razorpay TEST mode keys to enable payment links.");
+    return unavailable(
+      c,
+      "Add Razorpay TEST mode keys to enable payment links.",
+    );
   }
   if (!keyId.startsWith("rzp_test_")) {
-    return unavailable(c, "Live Razorpay keys are blocked. Use Test Mode credentials.");
+    return unavailable(
+      c,
+      "Live Razorpay keys are blocked. Use Test Mode credentials.",
+    );
   }
 
   const transactionId = c.req.param("transactionId");
@@ -248,14 +286,17 @@ app.post("/api/payment-links/:transactionId", async (c) => {
       .where(
         and(
           eq(transactions.id, transactionId),
-          eq(transactions.businessId, currentBusinessId),
+          eq(transactions.businessId, c.get("businessId")),
         ),
       )
       .limit(1);
     if (!entry) return c.json({ error: "Transaction not found." }, 404);
     if (entry.direction !== "inflow" || entry.settlementStatus === "settled") {
       return c.json(
-        { error: "Payment links are only available for open incoming transactions." },
+        {
+          error:
+            "Payment links are only available for open incoming transactions.",
+        },
         409,
       );
     }
@@ -297,7 +338,11 @@ app.post("/api/payment-links/:transactionId", async (c) => {
     if (!response.ok || !result.id || !result.short_url) {
       console.error("[razorpay-link]", result.error ?? response.statusText);
       return c.json(
-        { error: result.error?.description ?? "Razorpay could not create the test link." },
+        {
+          error:
+            result.error?.description ??
+            "Razorpay could not create the test link.",
+        },
         502,
       );
     }
@@ -305,7 +350,7 @@ app.post("/api/payment-links/:transactionId", async (c) => {
     const [saved] = await db
       .insert(paymentRequests)
       .values({
-        businessId: currentBusinessId,
+        businessId: c.get("businessId"),
         transactionId: entry.id,
         providerLinkId: result.id,
         shortUrl: result.short_url,
@@ -367,7 +412,9 @@ app.post("/api/webhooks/razorpay", async (c) => {
   const eventId =
     c.req.header("x-razorpay-event-id") ??
     createHmac("sha256", "munim-webhook-id").update(rawBody).digest("hex");
-  const amountPaid = Number(event.payload?.payment_link?.entity?.amount_paid ?? 0);
+  const amountPaid = Number(
+    event.payload?.payment_link?.entity?.amount_paid ?? 0,
+  );
   if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0) {
     return c.text("Paid amount is invalid.", 400);
   }
@@ -381,16 +428,13 @@ app.post("/api/webhooks/razorpay", async (c) => {
         .limit(1);
       if (seen) return;
 
-      await tx.insert(webhookEvents).values({ id: eventId, provider: "razorpay" });
+      await tx
+        .insert(webhookEvents)
+        .values({ id: eventId, provider: "razorpay" });
       const [request] = await tx
         .select()
         .from(paymentRequests)
-        .where(
-          and(
-            eq(paymentRequests.providerLinkId, linkId),
-            eq(paymentRequests.businessId, currentBusinessId),
-          ),
-        )
+        .where(and(eq(paymentRequests.providerLinkId, linkId)))
         .limit(1);
       if (!request) return;
 
@@ -402,7 +446,7 @@ app.post("/api/webhooks/razorpay", async (c) => {
       if (!entry) return;
 
       await tx.insert(settlements).values({
-        businessId: currentBusinessId,
+        businessId: request.businessId,
         transactionId: entry.id,
         amountPaise: amountPaid,
         direction: "inflow",
@@ -458,7 +502,10 @@ app.post("/api/memory/search", async (c) => {
       error instanceof MekoConfigurationError
         ? error.message
         : "Meko could not search business memory.";
-    return c.json({ error: message }, error instanceof MekoConfigurationError ? 503 : 502);
+    return c.json(
+      { error: message },
+      error instanceof MekoConfigurationError ? 503 : 502,
+    );
   }
 });
 
@@ -466,13 +513,16 @@ app.post("/api/memory/add", async (c) => {
   const body = await c.req.json().catch(() => null);
   const text = typeof body?.text === "string" ? body.text.trim() : "";
   if (!text || text.length > 2000) {
-    return c.json({ error: "Memory text must be between 1 and 2,000 characters." }, 400);
+    return c.json(
+      { error: "Memory text must be between 1 and 2,000 characters." },
+      400,
+    );
   }
 
   try {
     const result = await callMekoTool("memory_add", {
       text,
-      metadata: { source: "munim-ui", business_id: currentBusinessId },
+      metadata: { source: "munim-ui", business_id: c.get("businessId") },
     });
     return c.json({ result }, 201);
   } catch (error) {
@@ -480,18 +530,26 @@ app.post("/api/memory/add", async (c) => {
       error instanceof MekoConfigurationError
         ? error.message
         : "Meko could not save this business memory.";
-    return c.json({ error: message }, error instanceof MekoConfigurationError ? 503 : 502);
+    return c.json(
+      { error: message },
+      error instanceof MekoConfigurationError ? 503 : 502,
+    );
   }
 });
 
 app.post("/api/memory/promote", async (c) => {
   const body = await c.req.json().catch(() => null);
   const memoryIds = Array.isArray(body?.memoryIds)
-    ? body.memoryIds.filter((id: unknown): id is string => typeof id === "string")
+    ? body.memoryIds.filter(
+        (id: unknown): id is string => typeof id === "string",
+      )
     : [];
   if (body?.confirmed !== true || memoryIds.length === 0) {
     return c.json(
-      { error: "Select memories and explicitly confirm sharing them with the business." },
+      {
+        error:
+          "Select memories and explicitly confirm sharing them with the business.",
+      },
       400,
     );
   }
@@ -506,30 +564,14 @@ app.post("/api/memory/promote", async (c) => {
       error instanceof MekoConfigurationError
         ? error.message
         : "Meko could not promote the selected memories.";
-    return c.json({ error: message }, error instanceof MekoConfigurationError ? 503 : 502);
-  }
-});
-
-app.post("/api/stt/transcribe", async (c) => {
-  if (!process.env.STT_PROVIDER || !process.env.STT_API_KEY) {
     return c.json(
-      { error: "Choose an STT provider and configure its API key to enable voice capture." },
-      503,
+      { error: message },
+      error instanceof MekoConfigurationError ? 503 : 502,
     );
   }
-  return c.json(
-    { error: `STT provider "${process.env.STT_PROVIDER}" is selected but its adapter is not implemented yet.` },
-    501,
-  );
 });
 
 app.onError((error, c) => {
   console.error("[api-error]", error);
   return c.json({ error: "Unexpected server error." }, 500);
 });
-
-const port = Number(process.env.PORT ?? 3001);
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`Munim API listening on http://localhost:${info.port}`);
-});
-

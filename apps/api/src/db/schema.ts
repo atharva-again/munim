@@ -1,6 +1,7 @@
 import {
   bigint,
   index,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -15,7 +16,10 @@ import {
   transactionKinds,
 } from "@munim/contracts";
 
-export const transactionKindEnum = pgEnum("munim_transaction_kind", transactionKinds);
+export const transactionKindEnum = pgEnum(
+  "munim_transaction_kind",
+  transactionKinds,
+);
 export const transactionDirectionEnum = pgEnum(
   "munim_transaction_direction",
   transactionDirections,
@@ -86,7 +90,9 @@ export const settlements = pgTable(
       table.businessId,
       table.occurredAt,
     ),
-    uniqueIndex("munim_settlements_provider_event_uidx").on(table.providerEventId),
+    uniqueIndex("munim_settlements_provider_event_uidx").on(
+      table.providerEventId,
+    ),
   ],
 );
 
@@ -111,7 +117,9 @@ export const paymentRequests = pgTable(
   },
   (table) => [
     uniqueIndex("munim_payment_requests_link_uidx").on(table.providerLinkId),
-    uniqueIndex("munim_payment_requests_transaction_uidx").on(table.transactionId),
+    uniqueIndex("munim_payment_requests_transaction_uidx").on(
+      table.transactionId,
+    ),
   ],
 );
 
@@ -123,3 +131,15 @@ export const webhookEvents = pgTable("munim_webhook_events", {
     .defaultNow(),
 });
 
+export const conversations = pgTable("munim_conversations", {
+  id: uuid("id").primaryKey(),
+  businessId: text("business_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  authSessionId: text("auth_session_id").notNull(),
+  state: jsonb("state").notNull(),
+  receipts: jsonb("receipts").notNull().default({}),
+  expiresAt: timestamp("expires_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
+});

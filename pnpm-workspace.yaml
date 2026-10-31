@@ -2,6 +2,12 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  '@livekit/blingfire': true
+  '@livekit/local-inference': true
   esbuild: true
+  onnxruntime-node: true
 minimumReleaseAgeExclude:
   - lucide-react@1.66.0
+
+overrides:
+  "@opentelemetry/api": 1.9.0
