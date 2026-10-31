@@ -28,6 +28,8 @@ import { conversations, type RecordingSession } from "./conversation-api";
 import { useI18n } from "./i18n";
 import { buttonClass, primaryClass, StatusDot } from "./ui";
 type Connection = "idle" | "connecting" | "active" | "reconnecting";
+const callControlClass =
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-4 py-2 text-xs text-black enabled:hover:brightness-110";
 export default function VoiceSession({
   session,
   onUpdate,
@@ -481,7 +483,7 @@ export default function VoiceSession({
             <>
               <button
                 type="button"
-                className={buttonClass}
+                className={`${callControlClass} ${muted ? "bg-status-green" : "bg-status-yellow"}`}
                 aria-pressed={muted}
                 onClick={async () => {
                   const room = roomRef.current;
@@ -501,7 +503,7 @@ export default function VoiceSession({
               </button>
               <button
                 type="button"
-                className={buttonClass}
+                className={`${callControlClass} bg-status-red`}
                 onClick={() => {
                   setError("");
                   void stop();

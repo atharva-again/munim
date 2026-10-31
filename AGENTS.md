@@ -23,6 +23,7 @@
 
 - Use pure black and white as the interface colors. Derive neutral borders, muted text, hover fills, and selected navigation backgrounds from those colors.
 - Reserve blue, red, yellow, and green for meaningful status dots and important details. Keep navigation, primary buttons, hover states, and focus outlines monochrome.
+- Voice call controls are a semantic exception: End uses a solid red background, Pause yellow, and Resume green. Keep their labels and icons black for contrast in both themes.
 - Use the existing semantic Tailwind tokens: `status-blue` (`#0787F5`), `status-red` (`#EF4444`), `status-yellow` (`#EAB308`), and `status-green` (`#22C55E`).
 - Green means settled, connected, successful, or incoming. Yellow means partial settlement, outstanding amounts, or warnings. Blue means open entries, transfers, or informational results. Red means errors, failed actions, or outgoing money.
 - Reuse `StatusDot` for status dots and keep a visible status label alongside them. Never rely on color alone to communicate a state.
