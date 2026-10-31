@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Room, RoomEvent, Track, type RemoteParticipant } from "livekit-client";
 import { Mic, MicOff, PhoneOff, Volume2, VolumeX } from "lucide-react";
-import { conversationSchema, type Conversation } from "@munim/contracts";
+import { z } from "zod";
+import { type Conversation } from "@munim/contracts";
 import { conversations, type RecordingSession } from "./conversation-api";
 import { buttonClass, primaryClass, StatusDot } from "./ui";
 export default function VoiceSession({
@@ -95,10 +96,21 @@ export default function VoiceSession({
     room.on(RoomEvent.DataReceived, (data, participant, _, topic) => {
       if (topic !== "munim.conversation" || !participant?.isAgent) return;
       try {
-        const parsed = conversationSchema.safeParse(
-          JSON.parse(new TextDecoder().decode(data)),
-        );
-        if (parsed.success) onUpdateRef.current(parsed.data);
+        const parsed = z
+          .object({ id: z.string().uuid(), revision: z.number().int() })
+          .safeParse(JSON.parse(new TextDecoder().decode(data)));
+        if (parsed.success && parsed.data.id === session.conversation.id) {
+          void conversations
+            .get(session)
+            .then((state) => {
+              if (roomRef.current === room) onUpdateRef.current(state);
+            })
+            .catch(() =>
+              setError(
+                "Could not refresh the draft. End voice mode and retry before confirming.",
+              ),
+            );
+        }
       } catch {
         /* Ignore unrelated packets. */
       }
@@ -239,7 +251,7 @@ export default function VoiceSession({
       </div>
       {!session.voiceConfigured && (
         <p className="mt-4 text-xs leading-5 text-muted">
-          Voice is awaiting LiveKit, Sarvam, and Gemini setup. You can use the
+          Voice is awaiting LiveKit, Sarvam, and Groq setup. You can use the
           form now.
         </p>
       )}

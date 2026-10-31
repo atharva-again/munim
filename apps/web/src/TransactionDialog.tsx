@@ -59,10 +59,15 @@ export function TransactionDialog({
     savedId = useRef<string | null>(null),
     pending = useRef(false);
   const currentRevision = useRef(-1);
+  const currentSessionId = useRef<string | null>(null);
   const creation = useRef<Promise<RecordingSession> | null>(null);
   const retry = useRef<{ text: string; requestId: string } | null>(null);
   const update = useCallback((state: Conversation) => {
-    if (state.revision < currentRevision.current) return;
+    if (
+      state.id !== currentSessionId.current ||
+      state.revision < currentRevision.current
+    )
+      return;
     currentRevision.current = state.revision;
     setSession((previous) =>
       previous && state.revision >= previous.conversation.revision
@@ -78,6 +83,7 @@ export function TransactionDialog({
     try {
       const result = await conversations.create();
       currentRevision.current = 0;
+      currentSessionId.current = result.conversation.id;
       setActive(false);
       setSession(result);
       setDraft(result.conversation.draft);
@@ -98,6 +104,7 @@ export function TransactionDialog({
       .then((result) => {
         if (!cancelled) {
           currentRevision.current = 0;
+          currentSessionId.current = result.conversation.id;
           setSession(result);
           setDraft(result.conversation.draft);
         }
@@ -149,13 +156,19 @@ export function TransactionDialog({
   useEffect(() => {
     if (!active || !session) return;
     let cancelled = false;
+    let refreshing = false;
     const timer = window.setInterval(() => {
+      if (refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
       void conversations
         .get(session)
         .then((state) => {
           if (!cancelled) update(state);
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          refreshing = false;
+        });
     }, 2000);
     return () => {
       cancelled = true;
@@ -287,13 +300,21 @@ export function TransactionDialog({
                             ? retry.current
                             : { text, requestId: crypto.randomUUID() };
                         retry.current = attempt;
-                        update(
-                          await conversations.turn(
-                            session,
-                            attempt.text,
-                            attempt.requestId,
-                          ),
-                        );
+                        try {
+                          update(
+                            await conversations.turn(
+                              session,
+                              attempt.text,
+                              attempt.requestId,
+                            ),
+                          );
+                        } catch (error) {
+                          await conversations
+                            .get(session)
+                            .then(update)
+                            .catch(() => {});
+                          throw error;
+                        }
                         retry.current = null;
                         setText("");
                       });
@@ -324,7 +345,7 @@ export function TransactionDialog({
                     </button>
                     {!session.textConfigured && (
                       <p className="mt-3 text-xs text-muted">
-                        Text understanding is awaiting Gemini setup. The form is
+                        Text understanding is awaiting Groq setup. The form is
                         available now.
                       </p>
                     )}

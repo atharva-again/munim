@@ -66,7 +66,9 @@ class MunimAgent extends voice.Agent {
         text: message.textContent,
         channel: "voice",
       });
-      await this.publish(state);
+      await this.publish(state).catch((error) =>
+        console.error("[voice-update]", { conversationId: state.id, error }),
+      );
       const speech = this.session.say(state.reply, {
         allowInterruptions: true,
       });
@@ -101,7 +103,9 @@ export default defineAgent({
     await ctx.connect();
     const agent = new MunimAgent(metadata, async (state) => {
       await ctx.room.localParticipant?.publishData(
-        new TextEncoder().encode(JSON.stringify(state)),
+        new TextEncoder().encode(
+          JSON.stringify({ id: state.id, revision: state.revision }),
+        ),
         { reliable: true, topic: "munim.conversation" },
       );
     });
