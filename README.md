@@ -4,7 +4,7 @@ Munim is a mobile-first financial operator for small businesses. The current ver
 
 ## Stack
 
-- React, Vite, TypeScript, Tailwind CSS v4, and Base UI
+- React, Vite, TypeScript, and Tailwind CSS v4
 - Hono and LiveKit Agents on Node.js
 - Better Auth with Google-only sign-in
 - Sarvam realtime speech and Groq tool calling
@@ -45,11 +45,13 @@ For production use the HTTPS app origin and its corresponding callback URL. Keep
 
 Each Google account owns a separate ledger through its immutable Better Auth user ID. No owner-email setting or special account role is needed. Existing prototype data stays under its original business ID until it is explicitly migrated to an authenticated account. The existing `MUNIM_BUSINESS_ID` scopes the server-configured Meko and Razorpay integrations; those credentials are not shared with unrelated accounts.
 
-Run `pnpm db:migrate` to create the namespaced Better Auth and conversation tables. This additive migration preserves ledger records. `pnpm db:push` is only for initial ledger setup; use the migration command when upgrading this build.
+Run `pnpm db:migrate` to create the namespaced Better Auth, conversation, and language-preference tables. This additive migration preserves ledger records. `pnpm db:push` is only for initial ledger setup; use the migration command when upgrading this build.
 
 ## Voice, Text, and Form
 
-Record Transaction opens with Voice first, followed by Text and Form. All three update the same backend draft. Voice is a continuous, interruptible session after the user starts it once. Leaving voice mode or closing the dialog disconnects the microphone. The form works without speech or language-model credentials; no financial choices are preselected.
+Record Transaction is a full page with Voice first, followed by Text and Form. All three update the same backend draft. Voice is a continuous, interruptible session after the user starts it once. Leaving voice mode or navigating away from the recording page disconnects the microphone. The form works without speech or language-model credentials; no financial choices are preselected.
+
+After Google sign-in, new accounts choose Hindi, English, or Hinglish for the opening greeting and default replies. This preference is stored per account and can be changed in Settings. Reconnect voice to use a changed greeting; speech recognition continues to accept all three languages. A clear language switch during conversation can change a reply without overwriting the saved preference. The model has a separate conversational reply tool for greetings, questions, and unclear speech; these do not alter the draft. Missing transaction details are requested one at a time.
 
 Set the LiveKit, Sarvam, and Groq variables in `.env.example`, then run:
 
@@ -64,13 +66,21 @@ Production: run the web/API deployment and the persistent Node voice worker sepa
 
 The pipeline uses Sarvam `saaras:v4` realtime STT with partial transcripts, Groq `openai/gpt-oss-120b` with narrowly scoped proposal and memory tools, and streaming Sarvam `bulbul:v4-flash` TTS. The LLM uses `GROQ_API_KEY`; no Gemini account or key is required. Start with Groq’s free plan and confirm your account limits in its console. There is no automatic paid-provider fallback. Models and the TTS persona are environment-configurable. These are integration defaults, not measured winners on shop audio. The Sarvam account needs realtime STT access. A small TypeScript adapter uses Sarvam's new endpoint because the current LiveKit Node plugin only exposes legacy STT. The official plugin also lacks the current TTS model in its types.
 
-The model proposes drafts and asks clarifying questions. It has no ledger-write tool. The backend validates direction, integer paise, paid amounts, and counterparty for credit. Part payments create a matching settlement for the paid portion. Payment method is optional. Applying a new payment to an older due is not implemented; the assistant must explain that limitation rather than invent a second sale.
+The model proposes drafts and asks clarifying questions. It has no ledger-write tool. The application derives money direction from known transaction types; only Other needs a proposed direction. The backend validates direction, integer paise, paid amounts, and counterparty for credit. Part payments create a matching settlement for the paid portion. Payment method is optional. Applying a new payment to an older due is not implemented; the assistant must explain that limitation rather than invent a second sale.
+
+Browser capture enables noise suppression, echo cancellation, and automatic gain control. Sarvam endpointing and Silero interruption detection use a more conservative starting configuration to reduce short noise-triggered turns and interruptions. This is not measured shop-noise robustness: VAD cannot distinguish a shopkeeper from another speaker. No paid voice-isolation add-on is enabled. Tune the balance between false triggers and missed quiet speech with real audio before making accuracy or latency claims.
 
 Before saving, Munim reads back the exact draft. Spoken confirmation is accepted only for a complete, current review whose audio finished without interruption. On-screen confirmation requires the displayed review. Edits invalidate that review. An exact short affirmative such as “yes” or “हाँ” can confirm; a correction such as “haan lekin 550” cannot. Unsupported or ambiguous confirmation wording triggers clarification. Completed user turns are processed once; speculative generation is disabled around these financial actions.
 
 Drafts and original finalized transcripts are stored in the database for 12 hours; expired conversations are removed when a new entry starts. Ledger entries remain. Raw microphone audio is not stored by Munim and LiveKit session recording is disabled; provider processing/retention policies still apply. Conversation capabilities expire and are checked against the original Better Auth session, so signing out revokes access. A transaction and its settlement commit atomically; concurrent confirmations reuse one transaction identity. Language-model requests run outside database transactions; the draft revision is reserved first and checked again before applying the result. A newer edit supersedes an older interpretation. Speech playback failure cannot repeat the ledger write.
 
-Text and form requests preserve the draft when switching modes within the dialog. Closing and reopening starts a new entry. If a response is lost, the current session state can be refreshed; no automatic claim of success is made before database commit.
+Text and form requests preserve the draft when switching modes. The recording page retains its draft when visiting other pages in the same browser session. Reloading the app starts a new recording session. If a response is lost, the current session state can be refreshed; no automatic claim of success is made before database commit.
+
+## Insights
+
+Insights calculates across the full authenticated ledger, independent of the Transactions page's loaded subset. Choose 7, 30, or 90 days to compare recorded incoming and outgoing payments with the preceding period. Payment amounts and dates come from settlements, including part payments; transfers are excluded. The current period includes today, which is still in progress.
+
+Outstanding Now covers all recorded history, lists the largest remaining amounts first, and supports direction, entry-age filters, and pagination. Expand an entry to see its original amount, payments, remaining balance, and a reminder or payment note to copy and share manually. The age breakdown is time since the entry, not a claim that payment is overdue. Where Money Went groups actual outgoing payments by transaction type. These calculations do not claim profit, a bank balance, forecasts, or verified payments outside the ledger.
 
 ## Other Integrations
 
