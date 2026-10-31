@@ -19,7 +19,11 @@ import {
   Keyboard,
 } from "lucide-react";
 import { z } from "zod";
-import { voiceActivitySchema, type Conversation } from "@munim/contracts";
+import {
+  voiceActivitySchema,
+  voiceCaptionSchema,
+  type Conversation,
+} from "@munim/contracts";
 import { conversations, type RecordingSession } from "./conversation-api";
 import { useI18n } from "./i18n";
 import { buttonClass, primaryClass, StatusDot } from "./ui";
@@ -57,6 +61,8 @@ export default function VoiceSession({
     [userSpeaking, setUserSpeaking] = useState(false);
   const [error, setError] = useState(""),
     [started, setStarted] = useState(false);
+  const [exchange, setExchange] = useState({ user: "", assistant: "" });
+  const [audioBlocked, setAudioBlocked] = useState(false);
   useEffect(() => {
     onProcessingRef.current(processing || (userSpeaking && !muted));
   }, [processing, userSpeaking, muted]);
@@ -121,6 +127,8 @@ export default function VoiceSession({
     setSpeaking(false);
     setUserSpeaking(false);
     setMuted(false);
+    setExchange({ user: "", assistant: "" });
+    setAudioBlocked(false);
     const room = new Room({
       adaptiveStream: true,
       disconnectOnPageLeave: true,
@@ -212,6 +220,9 @@ export default function VoiceSession({
         "Your microphone is blocked. Allow it in your browser, then try again.",
       ),
     );
+    room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+      if (current()) setAudioBlocked(!room.canPlaybackAudio);
+    });
     room.on(RoomEvent.DataReceived, (data, participant, _, topic) => {
       if (!current() || !participant?.isAgent) return;
       try {
@@ -229,6 +240,18 @@ export default function VoiceSession({
           if (event.data.state === "processing") setError("");
           if (event.data.state === "error")
             setError("That didn’t work. Please say it again or type it.");
+          if (event.data.state === "audio-error")
+            setError("I couldn’t play that reply. You can read it on screen.");
+        } else if (topic === "munim.caption") {
+          const caption = voiceCaptionSchema.safeParse(payload);
+          if (!caption.success || caption.data.id !== session.conversation.id)
+            return;
+          const { role, text } = caption.data;
+          setExchange((previous) =>
+            role === "user"
+              ? { user: text, assistant: "" }
+              : { ...previous, assistant: text },
+          );
         } else if (topic === "munim.conversation") {
           const update = z
             .object({ id: z.string().uuid(), revision: z.number().int() })
@@ -330,7 +353,7 @@ export default function VoiceSession({
     : !connected
       ? started
         ? ""
-        : "For example: “Ramesh took ₹500 of milk on credit.”"
+        : "Start once, then talk naturally."
       : muted
         ? "Resume when you’re ready to speak."
         : speaking
@@ -338,44 +361,95 @@ export default function VoiceSession({
           : processing
             ? "I’m checking the details."
             : "Tell me what happened. You can keep talking naturally.";
+  const previousUser = session.conversation.messages
+    .filter((message) => message.role === "user")
+    .at(-1)?.text;
+  const previousReply = session.conversation.messages.at(-1);
+  const userText = started ? exchange.user : previousUser;
+  const assistantText = started
+    ? exchange.assistant
+    : previousReply?.role === "assistant"
+      ? previousReply.text
+      : "";
   return (
-    <section className="py-7 sm:py-10" aria-label={t("Voice Conversation")}>
-      <div className="mx-auto flex max-w-lg flex-col items-center text-center">
-        {(connected || joining) && (
-          <div
-            aria-hidden="true"
-            className={`grid size-20 place-items-center rounded-full border bg-soft transition-colors motion-reduce:transition-none ${connected && userSpeaking && !muted ? "border-fg" : "border-line"}`}
+    <section className="pt-6" aria-label={t("Voice Conversation")}>
+      <div className="flex flex-col">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm">{t("Talk to Munim")}</h2>
+          <p
+            className="flex items-center gap-2 text-[11px] text-muted"
+            role="status"
+            aria-live="polite"
           >
-            {joining || (processing && connected && !speaking && !muted) ? (
-              <LoaderCircle
-                size={28}
-                strokeWidth={1.4}
-                className="motion-safe:animate-spin"
-              />
-            ) : muted ? (
-              <MicOff size={28} strokeWidth={1.4} />
-            ) : (
-              <Mic size={28} strokeWidth={1.4} />
-            )}
-          </div>
-        )}
-        <h2
-          className="mt-5 flex items-center gap-2 text-xl tracking-tight"
-          role="status"
-          aria-live="polite"
-        >
-          {connected && <StatusDot tone={muted ? "warning" : "success"} />}
-          {t(title)}
-        </h2>
+            {joining || (processing && !speaking) ? (
+              <LoaderCircle size={13} className="motion-safe:animate-spin" />
+            ) : connected ? (
+              <StatusDot tone={muted ? "warning" : "success"} />
+            ) : null}
+            {t(title)}
+          </p>
+        </header>
         {helper && (
-          <p className="mt-2 text-xs leading-6 text-muted">{t(helper)}</p>
+          <p className="mt-2 text-[11px] leading-5 text-muted">{t(helper)}</p>
         )}
+        <div
+          className="grid min-h-64 content-center gap-7 py-8 sm:gap-9 sm:py-10"
+          role="region"
+          aria-label={t("Current Conversation")}
+        >
+          <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-4 sm:grid-cols-[4rem_minmax(0,1fr)] sm:gap-6">
+            <p className="pt-1 text-[11px] text-muted">
+              {t(!started && !userText ? "Example" : "You")}
+            </p>
+            <p
+              className={`break-words text-base leading-7 ${userText ? "text-fg" : "text-muted"}`}
+            >
+              {userText ||
+                t(
+                  started
+                    ? "Your words will appear here when you pause."
+                    : "Ramesh took ₹500 of milk on credit.",
+                )}
+            </p>
+          </div>
+          <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-4 sm:grid-cols-[4rem_minmax(0,1fr)] sm:gap-6">
+            <p className="pt-1 text-[11px] text-muted">{t("Munim")}</p>
+            <p
+              className={`break-words text-base leading-7 ${assistantText ? "text-fg" : "text-muted"}`}
+            >
+              {assistantText ||
+                t(
+                  processing
+                    ? "I’m checking the details."
+                    : "My reply will appear here.",
+                )}
+            </p>
+          </div>
+        </div>
         {error && (
-          <p role="alert" className="mt-3 text-xs leading-6 text-status-red">
+          <p role="alert" className="mb-4 text-xs leading-6 text-status-red">
             {t(error)}
           </p>
         )}
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+        {audioBlocked && connected && (
+          <button
+            type="button"
+            className={`${buttonClass} mb-4 self-start`}
+            onClick={() =>
+              void roomRef.current
+                ?.startAudio()
+                .catch(() =>
+                  setError(
+                    "Your browser blocked sound. Enable sound, then try again.",
+                  ),
+                )
+            }
+          >
+            <Volume2 size={15} />
+            {t("Enable Sound")}
+          </button>
+        )}
+        <div className="flex min-h-17 flex-wrap items-center gap-2 border-t border-line py-4">
           {!session.voiceConfigured ? (
             <button
               type="button"
@@ -450,14 +524,14 @@ export default function VoiceSession({
           )}
         </div>
         {!session.voiceConfigured ? (
-          <p className="mt-4 text-xs leading-6 text-muted">
+          <p className="mt-1 text-xs leading-6 text-muted">
             {t(
               "Voice isn’t available right now. You can type or use the form.",
             )}
           </p>
         ) : (
           !started && (
-            <p className="mt-4 text-[11px] text-muted">
+            <p className="mt-1 text-[11px] text-muted">
               {t(
                 session.conversation.approvalMode === "autonomous"
                   ? "Saves Automatically"
@@ -467,8 +541,8 @@ export default function VoiceSession({
           )
         )}
         {connected && !quiet && (
-          <details className="group mt-5 text-xs text-muted">
-            <summary className="flex list-none items-center justify-center gap-2 rounded-md px-3 py-2 hover:text-fg">
+          <details className="group mt-1 self-start text-xs text-muted">
+            <summary className="flex list-none items-center gap-2 rounded-md py-2 hover:text-fg">
               {t("More Controls")}
               <ChevronDown
                 size={13}
@@ -498,7 +572,7 @@ export default function VoiceSession({
         {connected && quiet && (
           <button
             type="button"
-            className="mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-xs text-muted hover:text-fg"
+            className="mt-1 flex items-center gap-2 self-start rounded-md py-2 text-xs text-muted hover:text-fg"
             onClick={() => {
               quietRef.current = false;
               audioRef.current?.querySelectorAll("audio").forEach((element) => {

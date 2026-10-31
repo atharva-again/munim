@@ -405,7 +405,7 @@ export default function RecordView({
             </div>
           )}
           {state?.phase === "collecting" &&
-            mode !== "form" &&
+            mode === "text" &&
             state.messages.at(-1)?.role === "assistant" && (
               <div className="mb-5 rounded-lg bg-soft p-4" role="status">
                 <p className="text-sm leading-7">{state.reply}</p>

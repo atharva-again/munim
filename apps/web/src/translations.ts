@@ -360,8 +360,6 @@ const hindi: Readonly<Record<string, string>> = {
   "Listen to the reply, or speak to add something.":
     "जवाब सुनें या कुछ जोड़ना हो तो बोलें।",
   "Resume when you’re ready to speak.": "बोलना हो तो माइक फिर चालू करें।",
-  "For example: “Ramesh took ₹500 of milk on credit.”":
-    "जैसे: “रमेश ने ₹500 का दूध उधार लिया।”",
   "Saves Automatically": "अपने आप सेव होगा",
   "I’ll Ask Before Saving": "सेव करने से पहले पूछूँगा",
   Saved: "लिख लिया",
@@ -379,6 +377,20 @@ const hindi: Readonly<Record<string, string>> = {
   Munim: "मुनीम",
   UPI: "UPI",
   "Voice Conversation": "बोलकर हिसाब लिखें",
+  "Talk to Munim": "मुनीम से बात करें",
+  "Start once, then talk naturally.": "बात शुरू करें, फिर आराम से बोलते रहें।",
+  "Current Conversation": "अभी की बातचीत",
+  You: "आप",
+  Example: "उदाहरण",
+  "Your words will appear here when you pause.":
+    "आप रुकेंगे तो आपकी कही बात यहाँ दिखेगी।",
+  "Ramesh took ₹500 of milk on credit.": "रमेश ने ₹500 का दूध उधार लिया।",
+  "My reply will appear here.": "मुनीम का जवाब यहाँ दिखेगा।",
+  "I couldn’t play that reply. You can read it on screen.":
+    "जवाब की आवाज़ नहीं चल पाई। स्क्रीन पर पढ़ सकते हैं।",
+  "Your browser blocked sound. Enable sound, then try again.":
+    "ब्राउज़र ने आवाज़ रोक दी है। आवाज़ चालू करके फिर कोशिश करें।",
+  "Enable Sound": "आवाज़ चालू करें",
   "Choose the language for the app and Munim’s replies. You can speak Hindi, English, or both.":
     "मुनीम के पन्ने और जवाब इस भाषा में होंगे। आप हिन्दी, अंग्रेज़ी या दोनों में बोल सकते हैं।",
   "Use this language for the app and Munim’s replies. You can still speak Hindi, English, or both.":
