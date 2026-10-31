@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@font-face {
+  font-family: Geist;
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: Geist, system-ui, sans-serif;
+  --color-canvas: #ffffff;
+  --color-fg: #000000;
+  --color-line: color-mix(in srgb, var(--color-fg) 12%, var(--color-canvas));
+  --color-soft: color-mix(in srgb, var(--color-fg) 4%, var(--color-canvas));
+  --color-muted: color-mix(in srgb, var(--color-fg) 63%, var(--color-canvas));
+  --color-status-blue: #0787f5;
+  --color-status-red: #ef4444;
+  --color-status-yellow: #eab308;
+  --color-status-green: #22c55e;
+}
