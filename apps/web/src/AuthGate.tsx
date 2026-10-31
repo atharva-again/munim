@@ -63,7 +63,7 @@ export default function AuthGate() {
         </h1>
         <p className="mt-4 text-sm leading-6 text-muted">
           {t(
-            "Speak, type, or fill in a form. Keep your business ledger in one place.",
+            "Speak or type. Keep your business ledger in one place.",
           )}
         </p>
         <button

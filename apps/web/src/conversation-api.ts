@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  conversationSchema,
-  voiceTokenSchema,
-  type TransactionDraft,
-} from "@munim/contracts";
+import { conversationSchema, voiceTokenSchema } from "@munim/contracts";
 import { requestJson } from "./http";
 export const sessionSchema = z.object({
   conversation: conversationSchema,
@@ -20,6 +16,15 @@ function options(session: RecordingSession, body?: unknown): RequestInit {
   };
 }
 export const conversations = {
+  telemetry: (
+    session: RecordingSession,
+    data: { stage: "client_audio_gap"; durationMs: number; turnId?: string },
+  ) =>
+    requestJson(
+      `/api/conversations/${session.conversation.id}/telemetry`,
+      z.object({ ok: z.boolean() }),
+      options(session, data),
+    ),
   create: () =>
     requestJson("/api/conversations", sessionSchema, {
       method: "POST",
@@ -40,16 +45,6 @@ export const conversations = {
         requestId,
         revision: session.conversation.revision,
         channel: "text",
-      }),
-    ),
-  form: (session: RecordingSession, draft: TransactionDraft, submit = false) =>
-    requestJson(
-      `/api/conversations/${session.conversation.id}/form`,
-      conversationSchema,
-      options(session, {
-        draft,
-        submit,
-        revision: session.conversation.revision,
       }),
     ),
   reviewed: (session: RecordingSession) =>

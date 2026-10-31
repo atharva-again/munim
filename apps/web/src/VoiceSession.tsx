@@ -15,7 +15,6 @@ import {
   VolumeX,
   ChevronDown,
   LoaderCircle,
-  RotateCcw,
   Keyboard,
 } from "lucide-react";
 import { z } from "zod";
@@ -26,7 +25,7 @@ import {
 } from "@munim/contracts";
 import { conversations, type RecordingSession } from "./conversation-api";
 import { useI18n } from "./i18n";
-import { buttonClass, primaryClass, StatusDot } from "./ui";
+import { buttonClass, StatusDot } from "./ui";
 type Connection = "idle" | "connecting" | "active" | "reconnecting";
 const callControlClass =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-4 py-2 text-xs text-black enabled:hover:brightness-110";
@@ -63,6 +62,9 @@ export default function VoiceSession({
     [userSpeaking, setUserSpeaking] = useState(false);
   const [error, setError] = useState(""),
     [started, setStarted] = useState(false);
+  const lastLocalEnd = useRef<number | null>(null);
+  const localWasSpeaking = useRef(false);
+  const captionTurnId = useRef<string | undefined>(undefined);
   const [exchange, setExchange] = useState({ user: "", assistant: "" });
   const [audioBlocked, setAudioBlocked] = useState(false);
   useEffect(() => {
@@ -130,6 +132,8 @@ export default function VoiceSession({
     setUserSpeaking(false);
     setMuted(false);
     setExchange({ user: "", assistant: "" });
+    lastLocalEnd.current = null;
+    localWasSpeaking.current = false;
     setAudioBlocked(false);
     const room = new Room({
       adaptiveStream: true,
@@ -191,10 +195,26 @@ export default function VoiceSession({
       track.detach().forEach((element) => element.remove()),
     );
     room.on(RoomEvent.ActiveSpeakersChanged, (participants) => {
-      if (current())
-        setUserSpeaking(
-          participants.some((participant) => participant.isLocal),
-        );
+      if (!current()) return;
+      const local = participants.some((participant) => participant.isLocal);
+      if (localWasSpeaking.current && !local)
+        lastLocalEnd.current = performance.now();
+      localWasSpeaking.current = local;
+      setUserSpeaking(local);
+      if (
+        participants.some((participant) => participant.isAgent) &&
+        lastLocalEnd.current !== null
+      ) {
+        const durationMs = performance.now() - lastLocalEnd.current;
+        lastLocalEnd.current = null;
+        void conversations
+          .telemetry(session, {
+            stage: "client_audio_gap",
+            durationMs,
+            turnId: captionTurnId.current,
+          })
+          .catch(() => {});
+      }
     });
     room.on(RoomEvent.Reconnecting, () => {
       if (current()) setConnection("reconnecting");
@@ -249,6 +269,7 @@ export default function VoiceSession({
           if (!caption.success || caption.data.id !== session.conversation.id)
             return;
           const { role, text } = caption.data;
+          captionTurnId.current = caption.data.turnId;
           setExchange((previous) =>
             role === "user"
               ? { user: text, assistant: "" }
@@ -363,231 +384,202 @@ export default function VoiceSession({
           : processing
             ? "I’m checking the details."
             : "Tell me what happened. You can keep talking naturally.";
-  const previousUser = session.conversation.messages
-    .filter((message) => message.role === "user")
-    .at(-1)?.text;
-  const previousReply = session.conversation.messages.at(-1);
-  const userText = started ? exchange.user : previousUser;
-  const assistantText = started
-    ? exchange.assistant
-    : previousReply?.role === "assistant"
-      ? previousReply.text
-      : "";
+  const circleLabel = joining ? "Cancel" : connected ? "End" : "Start Talking";
+  const communicating =
+    connected && !muted && (userSpeaking || processing || speaking);
   return (
-    <section className="pt-6" aria-label={t("Voice Conversation")}>
-      <div className="flex flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm">{t("Talk to Munim")}</h2>
-          <p
-            className="flex items-center gap-2 text-[11px] text-muted"
-            role="status"
-            aria-live="polite"
-          >
-            {joining || (processing && !speaking) ? (
-              <LoaderCircle size={13} className="motion-safe:animate-spin" />
-            ) : connected ? (
-              <StatusDot tone={muted ? "warning" : "success"} />
-            ) : null}
-            {t(title)}
-          </p>
-        </header>
-        {helper && (
-          <p className="mt-2 text-[11px] leading-5 text-muted">{t(helper)}</p>
-        )}
-        <div
-          className="grid min-h-64 content-center gap-7 py-8 sm:gap-9 sm:py-10"
-          role="region"
-          aria-label={t("Current Conversation")}
-        >
-          <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-4 sm:grid-cols-[4rem_minmax(0,1fr)] sm:gap-6">
-            <p className="pt-1 text-[11px] text-muted">
-              {t(!started && !userText ? "Example" : "You")}
-            </p>
-            <p
-              className={`break-words text-base leading-7 ${userText ? "text-fg" : "text-muted"}`}
-            >
-              {userText ||
-                t(
-                  started
-                    ? "Your words will appear here when you pause."
-                    : "Ramesh took ₹500 of milk on credit.",
-                )}
-            </p>
-          </div>
-          <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-4 sm:grid-cols-[4rem_minmax(0,1fr)] sm:gap-6">
-            <p className="pt-1 text-[11px] text-muted">{t("Munim")}</p>
-            <p
-              className={`break-words text-base leading-7 ${assistantText ? "text-fg" : "text-muted"}`}
-            >
-              {assistantText ||
-                t(
-                  processing
-                    ? "I’m checking the details."
-                    : "My reply will appear here.",
-                )}
-            </p>
-          </div>
-        </div>
-        {error && (
-          <p role="alert" className="mb-4 text-xs leading-6 text-status-red">
-            {t(error)}
-          </p>
-        )}
-        {audioBlocked && connected && (
+    <section className="py-6 sm:py-9" aria-label={t("Voice Conversation")}>
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:gap-7">
+        <div className="flex shrink-0 flex-col items-center gap-3 self-center">
           <button
             type="button"
-            className={`${buttonClass} mb-4 self-start`}
-            onClick={() =>
-              void roomRef.current
-                ?.startAudio()
-                .catch(() =>
-                  setError(
-                    "Your browser blocked sound. Enable sound, then try again.",
-                  ),
-                )
+            aria-label={t(circleLabel)}
+            aria-pressed={connected}
+            disabled={!session.voiceConfigured}
+            onClick={() => {
+              if (connected || joining) {
+                setError("");
+                void stop();
+              } else void start();
+            }}
+            className={
+              "grid size-24 place-items-center rounded-full border transition-colors motion-reduce:transition-none sm:size-28 " +
+              (connected
+                ? "border-fg bg-soft text-fg"
+                : "border-fg bg-fg text-canvas enabled:hover:bg-fg/85")
             }
           >
-            <Volume2 size={15} />
-            {t("Enable Sound")}
-          </button>
-        )}
-        <div className="flex min-h-17 flex-wrap items-center gap-2 border-t border-line py-4">
-          {!session.voiceConfigured ? (
-            <button
-              type="button"
-              className={primaryClass}
-              onClick={onChooseText}
-            >
-              <Keyboard size={15} />
-              {t("Type Instead")}
-            </button>
-          ) : !connected && !joining ? (
-            <button
-              type="button"
-              className={primaryClass}
-              disabled={!session.voiceConfigured}
-              onClick={() => void start()}
-            >
-              {started ? <RotateCcw size={15} /> : <Mic size={15} />}
-              {t(started ? "Start Again" : "Start Talking")}
-            </button>
-          ) : joining ? (
-            <button
-              type="button"
-              className={buttonClass}
-              onClick={() => void stop()}
-            >
-              {t("Cancel")}
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={`${callControlClass} ${muted ? "bg-status-green" : "bg-status-yellow"}`}
-                aria-pressed={muted}
-                onClick={async () => {
-                  const room = roomRef.current;
-                  if (!room) return;
-                  try {
-                    await room.localParticipant.setMicrophoneEnabled(muted);
-                    setMuted(!muted);
-                  } catch {
-                    setError(
-                      "Your microphone is blocked. Allow it in your browser, then try again.",
-                    );
-                  }
-                }}
-              >
-                {muted ? <Mic size={15} /> : <MicOff size={15} />}
-                {t(muted ? "Resume" : "Pause")}
-              </button>
-              <button
-                type="button"
-                className={`${callControlClass} bg-status-red`}
-                onClick={() => {
-                  setError("");
-                  void stop();
-                }}
-              >
-                <PhoneOff size={15} />
-                {t("End")}
-              </button>
-            </>
-          )}
-          {error && (
-            <button
-              type="button"
-              className={buttonClass}
-              onClick={onChooseText}
-            >
-              <Keyboard size={15} />
-              {t("Type Instead")}
-            </button>
-          )}
-        </div>
-        {!session.voiceConfigured ? (
-          <p className="mt-1 text-xs leading-6 text-muted">
-            {t(
-              "Voice isn’t available right now. You can type or use the form.",
+            {joining ? (
+              <LoaderCircle
+                size={30}
+                strokeWidth={1.4}
+                className="motion-safe:animate-spin"
+              />
+            ) : connected ? (
+              <PhoneOff size={30} strokeWidth={1.4} />
+            ) : (
+              <Mic size={32} strokeWidth={1.4} />
             )}
-          </p>
-        ) : (
-          !started && (
-            <p className="mt-1 text-[11px] text-muted">
+          </button>
+          <p className="text-[11px] text-muted">{t(circleLabel)}</p>
+        </div>
+        <div
+          className="min-w-0 flex-1 rounded-3xl border border-line bg-soft px-5 py-5 sm:px-6"
+          aria-label={t("Current Conversation")}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <p
+              className="flex items-center gap-2 text-xs text-muted"
+              role="status"
+              aria-live="polite"
+            >
+              {connected && <StatusDot tone={muted ? "warning" : "success"} />}
+              {t(title)}
+            </p>
+            {communicating && (
+              <span className="flex gap-1" aria-hidden="true">
+                <span className="size-1 rounded-full bg-fg motion-safe:animate-pulse" />
+                <span className="size-1 rounded-full bg-fg motion-safe:animate-pulse [animation-delay:180ms]" />
+                <span className="size-1 rounded-full bg-fg motion-safe:animate-pulse [animation-delay:360ms]" />
+              </span>
+            )}
+          </div>
+          {started && (exchange.user || exchange.assistant) ? (
+            <div className="mt-4 grid gap-3">
+              {exchange.user && (
+                <div>
+                  <p className="text-[10px] text-muted">{t("You")}</p>
+                  <p className="mt-1 max-h-24 overflow-y-auto break-words text-sm leading-7">
+                    {exchange.user}
+                  </p>
+                </div>
+              )}
+              {exchange.assistant && (
+                <div>
+                  <p className="text-[10px] text-muted">{t("Munim")}</p>
+                  <p className="mt-1 max-h-32 overflow-y-auto break-words text-sm leading-7">
+                    {exchange.assistant}
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="mt-3 text-xs leading-6 text-muted">
               {t(
-                session.conversation.approvalMode === "autonomous"
-                  ? "Saves Automatically"
-                  : "I’ll Ask Before Saving",
+                joining
+                  ? helper
+                  : started
+                    ? "Tell me what happened. You can keep talking naturally."
+                    : "Tap the circle and tell Munim what happened.",
               )}
             </p>
-          )
-        )}
-        {connected && !quiet && (
-          <details className="group mt-1 self-start text-xs text-muted">
-            <summary className="flex list-none items-center gap-2 rounded-md py-2 hover:text-fg">
-              {t("More Controls")}
-              <ChevronDown
-                size={13}
-                className="transition-transform group-open:rotate-180 motion-reduce:transition-none"
-              />
-            </summary>
-            <button
-              type="button"
-              className={`${buttonClass} mt-2`}
-              aria-pressed={quiet}
-              onClick={() => {
-                const next = !quiet;
-                quietRef.current = next;
-                audioRef.current
-                  ?.querySelectorAll("audio")
-                  .forEach((element) => {
-                    element.muted = next;
-                  });
-                setQuiet(next);
-              }}
-            >
-              {quiet ? <VolumeX size={15} /> : <Volume2 size={15} />}
-              {t(quiet ? "Unmute Voice" : "Mute Voice")}
-            </button>
-          </details>
-        )}
-        {connected && quiet && (
+          )}
+        </div>
+      </div>
+      {connected && (
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2 sm:justify-start sm:pl-35">
           <button
             type="button"
-            className="mt-1 flex items-center gap-2 self-start rounded-md py-2 text-xs text-muted hover:text-fg"
-            onClick={() => {
-              quietRef.current = false;
-              audioRef.current?.querySelectorAll("audio").forEach((element) => {
-                element.muted = false;
-              });
-              setQuiet(false);
+            className={
+              callControlClass +
+              (muted ? " bg-status-green" : " bg-status-yellow")
+            }
+            aria-pressed={muted}
+            onClick={async () => {
+              const room = roomRef.current;
+              if (!room) return;
+              try {
+                await room.localParticipant.setMicrophoneEnabled(muted);
+                setMuted(!muted);
+              } catch {
+                setError(
+                  "Your microphone is blocked. Allow it in your browser, then try again.",
+                );
+              }
             }}
           >
-            <VolumeX size={14} />
-            {t("Unmute Voice")}
+            {muted ? <Mic size={15} /> : <MicOff size={15} />}
+            {t(muted ? "Resume" : "Pause")}
           </button>
-        )}
-      </div>
+          <button
+            type="button"
+            className={callControlClass + " bg-status-red"}
+            onClick={() => {
+              setError("");
+              void stop();
+            }}
+          >
+            <PhoneOff size={15} />
+            {t("End")}
+          </button>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-4 text-xs leading-6 text-status-red">
+          {t(error)}
+        </p>
+      )}
+      {(error || !session.voiceConfigured) && (
+        <button
+          type="button"
+          className={buttonClass + " mt-3"}
+          onClick={onChooseText}
+        >
+          <Keyboard size={14} />
+          {t("Type Instead")}
+        </button>
+      )}
+      {audioBlocked && connected && (
+        <button
+          type="button"
+          className={buttonClass + " mt-3"}
+          onClick={() =>
+            void roomRef.current
+              ?.startAudio()
+              .catch(() =>
+                setError(
+                  "Your browser blocked sound. Enable sound, then try again.",
+                ),
+              )
+          }
+        >
+          <Volume2 size={14} />
+          {t("Enable Sound")}
+        </button>
+      )}
+      {connected && (
+        <details className="group mt-4 text-xs text-muted">
+          <summary className="flex w-fit list-none items-center gap-2 rounded-md py-2">
+            {t("More Controls")}
+            <ChevronDown size={13} className="group-open:rotate-180" />
+          </summary>
+          <button
+            type="button"
+            className={buttonClass}
+            aria-pressed={quiet}
+            onClick={() => {
+              const next = !quiet;
+              quietRef.current = next;
+              audioRef.current?.querySelectorAll("audio").forEach((element) => {
+                element.muted = next;
+              });
+              setQuiet(next);
+            }}
+          >
+            {quiet ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            {t(quiet ? "Unmute Voice" : "Mute Voice")}
+          </button>
+        </details>
+      )}
+      {!started && (
+        <p className="mt-4 text-center text-[11px] text-muted sm:text-left sm:pl-35">
+          {t(
+            session.conversation.approvalMode === "autonomous"
+              ? "Saves Automatically"
+              : "I’ll Ask Before Saving",
+          )}
+        </p>
+      )}
       <div ref={audioRef} className="hidden" />
     </section>
   );

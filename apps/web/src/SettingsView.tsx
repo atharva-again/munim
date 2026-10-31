@@ -104,7 +104,7 @@ export default function SettingsView({
           </div>
           <p className="mt-4 text-[11px] leading-5 text-muted">
             {t(
-              "Applies to your next entry or submission. Changing this setting does not save an existing draft. The form always waits for you to submit.",
+              "Applies to your next entry. Changing this setting does not save an existing draft.",
             )}
           </p>
         </section>

@@ -1,5 +1,43 @@
 import type { PreferredLanguage } from "@munim/contracts";
 const hindi: Readonly<Record<string, string>> = {
+  "Speak or type. Keep your business ledger in one place.":
+    "बोलकर या लिखकर अपना हिसाब एक जगह रखें।",
+  "Tap the circle and tell Munim what happened.":
+    "गोले को दबाएँ और मुनीम को लेन-देन बताएँ।",
+  "Shop Context": "दुकान की याददाश्त",
+  "Showing recently recalled shop context. This is not a complete memory search.":
+    "हाल में याद की गई दुकान की जानकारी दिख रही है। यह पूरी याददाश्त की खोज नहीं है।",
+  "Showing recent shop memories. Older memories may not appear here.":
+    "दुकान की हाल की यादें दिख रही हैं। पुरानी बातें यहाँ नहीं भी दिख सकतीं।",
+  "Shop memory is still connecting or unavailable. I’ll ask for details when needed.":
+    "दुकान की याददाश्त अभी नहीं खुल पाई। ज़रूरी जानकारी पूछ ली जाएगी।",
+  "No matching shop context found.": "इस बारे में दुकान की कोई याद नहीं मिली।",
+  "Correct Shop Context": "दुकान की जानकारी सुधारें",
+  Correct: "सुधारें",
+  Forget: "भूल जाएँ",
+  "Used in This Reply": "इस जवाब में इस्तेमाल हुआ",
+  "Recalled Context": "याद की गई जानकारी",
+  "Context updated. Describe any affected unsaved entry again.":
+    "जानकारी बदल दी गई है। इससे जुड़ा अधूरा लेन-देन दोबारा बताएँ।",
+  "Teach Munim your shop’s names, products, and conventions. It can recall them in later conversations.":
+    "मुनीम को अपनी दुकान के नाम, सामान और तौर-तरीके बताएँ। अगली बातचीत में वह इन्हें याद कर सकता है।",
+  Ready: "तैयार",
+  "What does ‘big crate’ mean in my shop?":
+    "मेरी दुकान में ‘बड़ी पेटी’ का क्या मतलब है?",
+  "In my shop, ‘big crate’ means 24 bottles.":
+    "मेरी दुकान में ‘बड़ी पेटी’ का मतलब 24 बोतलें हैं।",
+  "Convention saved. It may take a moment to appear in recall.":
+    "बात सेव हो गई। याददाश्त में दिखने में थोड़ा समय लग सकता है।",
+  "Shop memory is updating. New conventions may take a moment to appear.":
+    "दुकान की याददाश्त अपडेट हो रही है। नई बातें दिखने में थोड़ा समय लग सकता है।",
+  "Some shop memory updates could not finish. Your financial records are safe.":
+    "दुकान की कुछ बातें याद नहीं हो पाईं। आपका हिसाब सुरक्षित है।",
+  "Text entry is unavailable right now. Please try again later.":
+    "अभी लिखकर हिसाब जोड़ना उपलब्ध नहीं है। थोड़ी देर में फिर कोशिश करें।",
+  "Applies to your next entry. Changing this setting does not save an existing draft.":
+    "यह अगले लेन-देन पर लागू होगा। इस पसंद को बदलने से अधूरा हिसाब सेव नहीं होगा।",
+  "You can change this later in Settings.":
+    "सेटिंग्स में यह पसंद बाद में बदल सकते हैं।",
   Overview: "एक नज़र",
   Transactions: "लेन-देन",
   Insights: "हिसाब की समझ",

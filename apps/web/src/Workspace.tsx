@@ -196,7 +196,7 @@ export default function Workspace() {
               {step.kind === "language"
                 ? t("You can change your language later in Settings.")
                 : t(
-                    "You can change this later in Settings. The form always waits for you to submit.",
+                    "You can change this later in Settings.",
                   )}
             </p>
             <div className="mt-6 flex items-center justify-between gap-3">

@@ -7,6 +7,7 @@ import {
   savePreferencesSchema,
   type SavedPreferences,
   ledgerSummarySchema,
+  memoryContextSchema,
   transactionSchema,
   type InsightQuery,
 } from "@munim/contracts";
@@ -22,7 +23,10 @@ const healthSchema = z.object({
   ]),
 });
 export type ApiHealth = z.infer<typeof healthSchema>;
-const memoryResultSchema = z.object({ result: z.unknown() });
+const memorySearchSchema = z.object({ result: memoryContextSchema });
+const memoryReceiptSchema = z.object({
+  result: z.object({ saved: z.literal(true) }),
+});
 export const api = {
   preferences: (signal: AbortSignal) =>
     request("/api/preferences", preferencesSchema, { signal }),
@@ -48,15 +52,39 @@ export const api = {
       { method: "POST" },
     ),
   searchMemory: (query: string) =>
-    request("/api/memory/search", memoryResultSchema, {
+    request("/api/memory/search", memorySearchSchema, {
       method: "POST",
       body: JSON.stringify({ query }),
     }),
   addMemory: (text: string) =>
-    request("/api/memory/add", memoryResultSchema, {
+    request("/api/memory/add", memoryReceiptSchema, {
       method: "POST",
       body: JSON.stringify({ text }),
     }),
+  memoryStatus: () =>
+    request(
+      "/api/memory/status",
+      z.object({
+        configured: z.boolean(),
+        status: z.string(),
+        pendingCaptures: z.number(),
+        failedCaptures: z.number(),
+      }),
+    ),
+  retryMemory: () =>
+    request("/api/memory/retry", z.object({ ok: z.boolean() }), {
+      method: "POST",
+      body: "{}",
+    }),
+  changeMemory: (id: string, text?: string) =>
+    request(
+      `/api/memory/${encodeURIComponent(id)}/${text === undefined ? "forget" : "update"}`,
+      memoryReceiptSchema,
+      {
+        method: "POST",
+        body: JSON.stringify(text === undefined ? {} : { text }),
+      },
+    ),
 };
 const rupeeFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
