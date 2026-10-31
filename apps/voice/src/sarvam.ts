@@ -10,6 +10,8 @@ import {
   type APIConnectOptions,
   type AudioBuffer,
 } from "@livekit/agents";
+import { voiceConfig } from "./config.js";
+import { errorName, voiceMetric } from "./metrics.js";
 
 const eventSchema = z.object({
   event: z.string(),
@@ -24,7 +26,7 @@ export class SarvamRealtimeSTT extends stt.STT {
     super({ streaming: true, interimResults: true });
   }
   override get model() {
-    return process.env.SARVAM_STT_MODEL || "saaras:v4";
+    return voiceConfig.SARVAM_STT_MODEL;
   }
   override get provider() {
     return "Sarvam";
@@ -52,15 +54,19 @@ class SarvamSpeechStream extends stt.SpeechStream {
     const url = new URL("wss://api.sarvam.ai/speech-to-text-realtime/ws");
     url.search = new URLSearchParams({
       model: this.providerSTT.model,
+      ...(this.providerSTT.model === "saaras:v4" &&
+      voiceConfig.SARVAM_STT_KEYTERMS.length
+        ? { keyterms: JSON.stringify(voiceConfig.SARVAM_STT_KEYTERMS) }
+        : {}),
       language_code: "auto",
       mode: "transcribe",
-      stream_type: "balanced",
+      stream_type: voiceConfig.SARVAM_STT_STREAM_TYPE,
       encoding: "linear16",
       sample_rate: "16000",
       endpointing: "vad",
-      silence_duration_ms: "800",
-      threshold: "0.6",
-      min_speech_duration_ms: "300",
+      silence_duration_ms: String(voiceConfig.SARVAM_STT_SILENCE_MS),
+      threshold: String(voiceConfig.SARVAM_STT_THRESHOLD),
+      min_speech_duration_ms: String(voiceConfig.SARVAM_STT_MIN_SPEECH_MS),
     }).toString();
     const ws = new WebSocket(url, {
       headers: { "api-subscription-key": this.apiKey },
@@ -151,7 +157,7 @@ export class SarvamStreamingTTS extends tts.TTS {
     super(24000, 1, { streaming: true });
   }
   override get model() {
-    return process.env.SARVAM_TTS_MODEL || "bulbul:v4-flash";
+    return voiceConfig.SARVAM_TTS_MODEL;
   }
   override get provider() {
     return "Sarvam";
@@ -211,6 +217,7 @@ class SarvamAudioStream extends tts.ChunkedStream {
     super(text, providerTTS, options, signal);
   }
   protected async run() {
+    const startedAt = performance.now();
     const response = await fetch(
       "https://api.sarvam.ai/text-to-speech/stream",
       {
@@ -219,31 +226,51 @@ class SarvamAudioStream extends tts.ChunkedStream {
           "Content-Type": "application/json",
           "api-subscription-key": this.providerTTS.apiKey,
         },
-        signal: AbortSignal.any([this.abortSignal, AbortSignal.timeout(25000)]),
+        signal: AbortSignal.any([
+          this.abortSignal,
+          AbortSignal.timeout(voiceConfig.SARVAM_TTS_TIMEOUT_MS),
+        ]),
         body: JSON.stringify({
           text: this.inputText,
           model: this.providerTTS.model,
           language_code: /[\u0900-\u097f]/.test(this.inputText)
             ? "hi-IN"
             : "en-IN",
-          ...(process.env.SARVAM_TTS_SPEAKER
-            ? { speaker: process.env.SARVAM_TTS_SPEAKER }
+          ...(voiceConfig.SARVAM_TTS_SPEAKER
+            ? { speaker: voiceConfig.SARVAM_TTS_SPEAKER }
             : {}),
           speech_sample_rate: 24000,
           output_audio_codec: "linear16",
         }),
       },
-    );
+    ).catch((error: unknown) => {
+      voiceMetric("tts_request_error", {
+        durationMs: Math.round(performance.now() - startedAt),
+        reason: errorName(error),
+      });
+      throw error;
+    });
     if (!response.ok || !response.body)
       throw new Error(`Speech synthesis unavailable (${response.status}).`);
     const stream = new AudioByteStream(24000, 1, 480),
       requestId = randomUUID();
     const reader = response.body.getReader();
     let last: tts.SynthesizedAudio | undefined;
+    let bytes = 0;
+    let firstByte = true;
+    let complete = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (firstByte) {
+          firstByte = false;
+          voiceMetric("tts_first_byte", {
+            durationMs: Math.round(performance.now() - startedAt),
+            model: this.providerTTS.model,
+          });
+        }
+        bytes += value.byteLength;
         for (const frame of stream.write(
           value.buffer.slice(
             value.byteOffset,
@@ -260,7 +287,14 @@ class SarvamAudioStream extends tts.ChunkedStream {
       }
       if (last) this.queue.put({ ...last, final: true });
       else throw new Error("Speech synthesis returned no audio.");
+      complete = true;
     } finally {
+      voiceMetric("tts_complete", {
+        durationMs: Math.round(performance.now() - startedAt),
+        audioDurationMs: Math.round(bytes / 48),
+        complete,
+        cancelled: this.abortSignal.aborted,
+      });
       await reader.cancel();
       reader.releaseLock();
       this.queue.close();
