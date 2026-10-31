@@ -1,99 +1,145 @@
-# Munim
+# munim
 
-Munim is a mobile-first financial operator for small businesses. The current vertical slice records and reconciles business transactions, keeps durable business context in Meko, and can create Razorpay **test-mode** payment links. YugabyteDB is the source of truth for transactions and settlements; Meko is contextual memory, not a ledger.
+Munim is a voice-first financial operator for Indian shopkeepers. Speak or type a money movement, answer a short question if needed, and save it under your chosen approval policy. English and Hindi apply throughout the UI; Hindi-English code-switching is accepted in speech.
 
-## Stack
+YugabyteDB is the financial source of truth. Meko remembers shop terminology and conventions across conversations. Recalled context never establishes a payment, amount, price, or authorization.
 
-- React, Vite, TypeScript, and Tailwind CSS v4
-- Hono and LiveKit Agents on Node.js
-- Better Auth with Google-only sign-in
-- Sarvam realtime speech and Groq tool calling
-- YugabyteDB YSQL through `pg` and Drizzle ORM
-- Meko MCP for business memory
-- Razorpay Test Mode for payment links and webhook-driven settlement
+## Run Locally
 
-## Run locally
-
-Use Node.js 22+ and pnpm 10+.
+Use Node.js 22+ and the pinned pnpm version in `package.json`. Have a development YugabyteDB YSQL database available. For a **new development database**, setup takes four commands:
 
 ```sh
 cp .env.example .env
 pnpm install
+pnpm setup:local
+pnpm dev:all
 ```
 
-Set `DATABASE_URL` to a **development/test** YugabyteDB YSQL connection string in `.env`, then create the schema:
+Edit `.env` before `setup:local`. It builds contracts, initializes the ledger schema, runs additive migrations, and downloads voice resources. `db:push` inside this command is for initial development setup. Upgrade an existing database with `pnpm db:migrate` instead.
 
-```sh
-pnpm db:push
-pnpm db:migrate
-pnpm dev
+Web: `http://localhost:5173`. API: `http://localhost:3001`. `pnpm dev:all` starts API, web, and the persistent voice worker together. Alternatively use `pnpm dev` for API/web and `pnpm voice:dev` in another terminal. Restart the voice worker after source/config changes; it does not hot-reload.
+
+### Configuration
+
+| Purpose | Variables |
+| --- | --- |
+| Database | `DATABASE_URL` |
+| Google-only sign-in | `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| Realtime transport | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` |
+| Speech | `SARVAM_API_KEY`; optional model/persona settings in `.env.example` |
+| Interpretation | `GROQ_API_KEY`, optional `MUNIM_LLM_MODEL` |
+| Business memory | `MEKO_API_KEY`, `MEKO_PROVISIONING_DATAPACK_ID` (or existing `MEKO_DATAPACK_ID` as bootstrap only), optional `MEKO_MCP_URL` |
+| Payment links | Razorpay **test-mode** keys and `RAZORPAY_WEBHOOK_SECRET` |
+
+Register `http://localhost:5173/api/auth/callback/google` as Google's development redirect URI. In production use the HTTPS app origin and corresponding callback. Serve `/api` on the same origin as the frontend. No password login, owner-email allowlist, or auth bypass is included.
+
+Secrets stay server-side; never use `VITE_` variables for provider keys or commit `.env`. Each signed-in account owns its ledger and preferences through the immutable Better Auth user ID. Prototype ledger data stays separate. `MUNIM_BUSINESS_ID` still restricts the prototype Razorpay integration; it no longer grants access to another shop's memory.
+
+## Agent Architecture
+
+```mermaid
+flowchart TD
+    Browser[React: Voice Circle, Temporary Captions, Text] <-->|Audio and Data| Room[LiveKit Room]
+    Room <--> Worker[TypeScript LiveKit Agent]
+    Worker --> Noise[Included Noise Filter]
+    Noise --> STT[Sarvam Realtime STT]
+    STT --> Turn[Finalized Speech Turn]
+    Turn --> API[Authenticated Conversation Controller]
+    API --> Recall[Account-Scoped Meko Recall]
+    Recall --> Groq[Strict Groq Tool Decision]
+    Groq --> Validate[Validation and Approval Policy]
+    Validate --> SQL[(YugabyteDB Ledger and Finance History)]
+    Validate --> Queue[(Durable Finance Capture Queue)]
+    Queue --> Capture[Meko Conversation Capture and Extraction]
+    Capture --> Memory[(Separate Runtime Datapack per Account)]
+    Memory --> Recall
+    Validate --> Reply[Short Natural Reply]
+    Reply --> TTS[Sarvam Streaming TTS]
+    TTS --> Room
 ```
 
-The web app is served at `http://localhost:5173`; the API is at `http://localhost:3001`. The UI does not seed or display sample transactions: it remains empty until connected to a database and given real entries.
+LiveKit Agents manages audio lifecycle, speech detection, interruption handling, worker processes, and playback. Munim's Hono backend orchestrates interpretation, recalled context, validation, and financial writes. The worker uses completed speech turns; speculative ledger actions remain disabled.
 
-## Google Sign-In
+Code defaults are Sarvam `saaras:v4` STT, Groq `openai/gpt-oss-120b`, and Sarvam `bulbul:v4-flash` TTS. Environment settings can override them. These are integration defaults, not benchmark winners for shop audio. Groq reasoning defaults to `low`; the reasoning budget, completion limit, and timeout are configurable.
 
-The app requires Google sign-in through Better Auth. There is no password login or development authentication bypass.
+The model has two strict tools: `propose_transaction` and `reply_to_user`. Memory retrieval happens before the decision, rather than requiring another model turn to request it. Tool schemas require explicit values or null for unknowns; runtime validation remains authoritative. The model cannot write the ledger, verify payment, change settings, or send money.
 
-Set `BETTER_AUTH_URL` to the browser origin (`http://localhost:5173` in development), generate a random `BETTER_AUTH_SECRET` of at least 32 characters, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Register this redirect URI in Google Cloud:
+See [the detailed architecture](docs/architecture.md) for ownership, persistence, and recovery boundaries.
 
-```
-http://localhost:5173/api/auth/callback/google
-```
+## Record Transaction
 
-For production use the HTTPS app origin and its corresponding callback URL. Keep the frontend and `/api` on the same origin.
+Only Voice and Text are available. The circular control connects, cancels a connection attempt, or ends the call. A pill beside it shows temporary STT and reply previews; activity dots run only during communication. Pause/Resume and red End controls appear when connected. Full **finance history** and secondary entry details are expandable. Partial captions are provisional and never authorize saving; they may change as recognition finalizes. Reply text is not word-synchronized audio.
 
-Each Google account owns a separate ledger through its immutable Better Auth user ID. No owner-email setting or special account role is needed. Existing prototype data stays under its original business ID until it is explicitly migrated to an authenticated account. The existing `MUNIM_BUSINESS_ID` scopes the server-configured Meko and Razorpay integrations; those credentials are not shared with unrelated accounts.
+Onboarding has separate Language and Saving Preference screens with no preselected choices. Both preferences persist per account and remain editable in Settings. The opening greeting follows the selected language; speaking another language does not overwrite that preference.
 
-Run `pnpm db:migrate` to create the namespaced Better Auth, conversation, and language and saving-preference tables. This additive migration preserves ledger records. `pnpm db:push` is only for initial ledger setup; use the migration command when upgrading this build.
+- **Ask for Approval:** a complete draft waits for exact-revision confirmation. Spoken approval requires successful, uninterrupted playback of the actual financial review. A greeting or ordinary reply cannot mark a review complete. On-screen confirmation is also supported.
+- **Full Autonomy:** complete validated new entries save immediately. Missing material facts get one short question. Changing a setting or reconnecting never saves an existing draft.
 
-## Voice, Text, and Form
+Payment status needs matching evidence in the current utterance when introduced or changed. The backend derives direction for known transaction kinds, validates integer paise, requires a counterparty for credit, and commits entries and part-payment settlements atomically. Stable request/entry identities prevent duplicate writes from retries.
 
-Record Transaction is a full page with Voice first, followed by Text and Form. All three update the same backend draft. Voice is a continuous, interruptible session after the user starts it once. Leaving voice mode or navigating away from the recording page disconnects the microphone. The form works without speech or language-model credentials; no financial choices are preselected.
+Only exchanges classified as finance-related are appended to conversation history and queued for Meko. Greetings such as hello/hi use a fast path and remain transient. Finance questions, shop-convention teaching, current-draft corrections, and confirmations can be retained. This is application intent filtering, not a complete abuse/content guardrail system.
 
-After Google sign-in, accounts choose English or Hindi on the first onboarding screen, then Ask for Approval or Full Autonomy on the second. The language applies to the whole interface and default spoken replies. Hindi-English code-switching remains supported in speech; it is not a separate app language. Both preferences are stored per account and editable in Settings. The migration maps older Hinglish preferences to Hindi and preserves their saving policy. Full Autonomy is never enabled by default. Reconnect voice to use a changed greeting. Switching the language spoken during a conversation does not change the saved app language. The model has a separate conversational reply tool for greetings, questions, and unclear speech; these do not alter the draft. Missing transaction details are requested one at a time.
+The model receives the current draft and up to eight prior finance messages; local history retains up to 60. Local conversations expire after 12 hours and are cleaned when another conversation starts. Saved ledger entries persist separately. Page navigation preserves the draft; a full browser reload starts a new conversation. Calls are capped at 20 minutes and leaving voice disconnects microphone and audio.
 
-The voice view keeps the current user utterance and Munim reply visible, with compact call controls and a clear listening, processing, or speaking state. Full conversation history, extra audio controls, and secondary entry details are expandable. Finalized speech captions reach the page before transaction interpretation finishes; provisional transcripts remain inside the speech pipeline so text does not change script mid-sentence. A newer finalized utterance suppresses an older delayed readback. Connection errors use plain language and offer retry or text entry. Playback failures leave the reply readable and do not complete a spoken review.
+Raw microphone audio and LiveKit session recording are disabled. Finalized finance text is stored locally and eligible exchanges are sent to Meko; provider retention policies still apply.
 
-Set the LiveKit, Sarvam, and Groq variables in `.env.example`, then run:
+## Three Runtime Memory Uses
 
-```sh
-pnpm voice:download
-pnpm dev
-# In another terminal:
-pnpm voice:dev
-```
+1. **Datapack isolation:** a server-owned SQL mapping associates each authenticated account with its own runtime Meko datapack. Deterministic hashed names, owned-name reconciliation, and leases make provisioning retryable. Clients cannot select another account or datapack.
+2. **Extracted memories:** committed finance exchanges enter a durable outbox. A background worker sends them through Meko's conversation API, which extracts durable facts asynchronously. Provider conversation/message identifiers are stable across retries. Successful queue rows clear their text payloads. Failed updates are visible and retryable in Business Memory. Ledger writes do not wait for extraction.
+3. **Recall before reasoning:** the backend retrieves actual shop facts before asking Groq to interpret a turn. The runtime path uses a bounded recent-memory window, selects up to five relevant facts, and labels its limited coverage. Business Memory provides deeper semantic search. An unavailable source is distinct from a successful empty result.
 
-Production: run the web/API deployment and the persistent Node voice worker separately (`pnpm voice:start` after `pnpm build`). The worker must reach `MUNIM_API_URL`; LiveKit requires its own Cloud project. Each connection receives a fresh room, dispatch, and short-lived room-scoped token. The worker is explicitly dispatched as `munim`; it cannot access unrelated ledgers. The microphone is published only when the worker is ready. Leaving ends that worker session; a job whose caller never joins times out. Microphone capture requires HTTPS or localhost. Sessions end after 20 minutes. Restart `pnpm voice:dev` after worker changes; it does not hot-reload.
+Expand **Shop Context** under an entry to inspect actual recalled facts. IDs claimed by the model must be in the returned set. Correct/Forget actions operate on verified account-owned memories and invalidate affected unsaved drafts and reviews. Stored conversations are not treated as a fallback source for forgotten facts. Promotion and cross-shop sharing are excluded.
 
-The pipeline uses Sarvam `saaras:v4` realtime STT with partial transcripts, Groq `openai/gpt-oss-120b` with narrowly scoped proposal and memory tools, and streaming Sarvam `bulbul:v4-flash` TTS. The LLM uses `GROQ_API_KEY`; no Gemini account or key is required. Start with Groq’s free plan and confirm your account limits in its console. There is no automatic paid-provider fallback. Models and the TTS persona are environment-configurable. These are integration defaults, not measured winners on shop audio. The Sarvam account needs realtime STT access. A small TypeScript adapter uses Sarvam's new endpoint because the current LiveKit Node plugin only exposes legacy STT. The official plugin also lacks the current TTS model in its types.
+The bootstrap datapack contains only empty administrative provisioning traces, never customer finance exchanges. Runtime account packs are separate from the team's coding/build datapack. All remote access is performed by the server's Meko account: application-level account mapping is enforced by Munim, not by forwarding end-user Google tokens to Meko. Credential compromise and operator access remain production considerations.
 
-The model proposes drafts and asks clarifying questions. Its output includes every field as a value or explicit unknown, with one named field for a clarification. A field being clarified is removed from the draft instead of prefilled with a guess. Introducing or changing payment status also requires a matching quote from the current utterance; an unsupported status is cleared and gets a clarification. It has no ledger-write tool. The application derives money direction from known transaction types; only Other needs a proposed direction. The backend validates direction, integer paise, paid amounts, and counterparty for credit. Part payments create a matching settlement for the paid portion. Payment method is optional. Applying a new payment to an older due is not implemented; the assistant must explain that limitation rather than invent a second sale.
+Set `MUNIM_MEMORY_ENABLED=false` and restart API to compare the same finalized input with memory off. This disables recall and capture; it does not delete existing memories. Use separate recording conversations with identical current facts, and inspect real returned context rather than fabricated examples. Extraction is asynchronous; wait for a convention to appear before the later-session demonstration.
 
-Browser capture enables noise suppression, echo cancellation, and automatic gain control. LiveKit Cloud's included NoiseCancellation filter cleans inbound audio before STT and VAD. Sarvam uses balanced partial recognition, and interruptions require at least one recognized word as well as sustained speech; false interruptions can resume playback. Short replies use one synthesis request across sentences and 20 ms PCM frames for playback. These changes do not establish shop-noise robustness: VAD and environmental noise suppression cannot identify the shopkeeper among other speakers. No paid voice-isolation add-on is enabled. Tune the balance between false triggers and missed quiet speech with real audio before making accuracy or latency claims.
+The hackathon's shared coding-agent build datapack, Check T, judge access, five-minute demo, and Meko feature proposal are separate submission requirements. This runtime implementation does not automatically satisfy them.
 
-Ask for Approval presents a short, natural summary of the amount, counterparty and payment status, with secondary details behind disclosure. Spoken confirmation is accepted only for the current review after uninterrupted audio playback. The on-screen Save button can confirm during the call; the worker checks the committed state before interrupting the old readback and acknowledging the save. Both modes can continue to the next entry in the same call. Edits invalidate the review. An exact short affirmative such as “yes” or “हाँ” can confirm; a correction such as “haan lekin 550” cannot.
+## Latency and Production Controls
 
-Full Autonomy saves complete, validated voice or text proposals without a readback or extra confirmation, then acknowledges the saved entry. Missing details still trigger a question. The user can describe the next event in the same voice/text session; each entry has its own identity, so an earlier entry is not overwritten. The form waits for an explicit Save Entry click. Switching modes, reconnecting voice, or changing a preference never saves an existing draft. The backend rechecks and locks the account’s current policy at the write boundary; a client or model flag cannot grant autonomy. Each transaction records the policy active when saved. Saved entries cannot be edited in this capture flow; a correction must not become a second sale. Completed turns are processed once and speculative generation remains disabled.
+| Area | Current Implementation | Still Needs Live Evidence |
+| --- | --- | --- |
+| Measurement | Correlated STT/backend/recall/Groq/TTS/playback timings; token/cache usage; authenticated process-local p50/p95 summary at `/api/voice-metrics` | Acoustic end-to-end latency and concurrent-shop measurements |
+| Turn completion | Configurable STT silence and LiveKit endpoint delay; baseline 600 ms + 100 ms | Hindi pauses, quiet speech, and false-cutoff tradeoff |
+| Model output | Strict tool calling, bounded retries, low reasoning, bounded context/output, stable cacheable prompt prefix | Representative accuracy comparison across reasoning/model choices |
+| Input quality | Browser suppression/echo cancellation plus included LiveKit environmental filter; recognized word required for interruption | Actual noisy shop and nearby-speaker scenarios |
+| Output quality | Brief replies, one synthesis request across sentences, streaming 20 ms PCM, no replay retry after partial speech | Naturalness, interruption recovery, names and amount pronunciation |
+| Operations | Prewarmed VAD/filter, warm workers, load-based job capacity, API concurrency cap, readiness, draining, bounded provider work, durable memory queue | Deployment, region selection, provider quotas, load and failure drills |
 
-Drafts and original finalized transcripts are stored in the database for 12 hours; expired conversations are removed when a new entry starts. Ledger entries remain. Raw microphone audio is not stored by Munim and LiveKit session recording is disabled; provider processing/retention policies still apply. Conversation capabilities expire and are checked against the original Better Auth session, so signing out revokes access. A transaction and its settlement commit atomically; concurrent confirmations reuse one transaction identity. Language-model requests run outside database transactions; the draft revision is reserved first and checked again before applying the result. A newer edit supersedes an older interpretation. Speech playback failure cannot repeat the ledger write.
+`client_audio_gap` measures browser-observed local-speaker end to remote-speaker activity. It is a transport/activity proxy, not a calibrated microphone-to-speaker measurement. API summaries are per-account, in-memory, bounded to recent samples, and reset when that process restarts; worker metrics are structured logs. No raw text/audio is logged by these timing events.
 
-Text and form requests preserve the draft when switching modes. The recording page retains its draft when visiting other pages in the same browser session. Reloading the app starts a new recording session. If a response is lost, the current session state can be refreshed; no automatic claim of success is made before database commit.
+The endpointing baseline reduces configured waiting from the previous 800+200 ms. It is not a measured speedup. A small live structured-output check accepted the same credit sale with low and medium reasoning; that sample does not establish a faster or more accurate model setting.
 
-## Insights
+The agent-side VAD and Sarvam endpoint controls are independently configurable. The included defaults favor filtering short background bursts (`MUNIM_VAD_ACTIVATION_THRESHOLD=0.65`, `MUNIM_VAD_MIN_SPEECH_MS=350`), while keeping ordinary turns responsive. They are starting points, not validated shop-noise settings; tune them from observed latency and error patterns without storing raw audio.
 
-Insights calculates across the full authenticated ledger, independent of the Transactions page's loaded subset. Choose 7, 30, or 90 days to compare recorded incoming and outgoing payments with the preceding period. Payment amounts and dates come from settlements, including part payments; transfers are excluded. The current period includes today, which is still in progress.
+Live semantic memory search was materially slower than the voice budget in a small validation. The voice path therefore uses Meko's recent-memory window rather than claiming complete semantic recall on every turn. A recent-window miss does not prove an older memory does not exist. Tune `MUNIM_MEMORY_RECALL_TIMEOUT_MS` for your measured deployment.
 
-Outstanding Now covers all recorded history, lists the largest remaining amounts first, and supports direction, entry-age filters, and pagination. Expand an entry to see its original amount, payments, remaining balance, and a reminder or payment note to copy and share manually. The age breakdown is time since the entry, not a claim that payment is overdue. Where Money Went groups actual outgoing payments by transaction type. These calculations do not claim profit, a bank balance, forecasts, or verified payments outside the ledger.
+## Deploy
 
-## Other Integrations
+Build with `pnpm build`. Run the API with `pnpm start`, serve `apps/web/dist` with same-origin `/api` routing, and run the persistent worker separately with `pnpm voice:start`. Do not put the voice worker in a short-lived request function. `MUNIM_API_URL` must be reachable from it. Microphone capture requires HTTPS or localhost.
 
-- **YugabyteDB:** `DATABASE_URL` must point to a development/test YSQL cluster. Ledgers and conversations are scoped to the authenticated account.
-- **Meko:** Set `MEKO_API_KEY`, `MEKO_DATAPACK_ID`, and optionally `MEKO_MCP_URL`. Business memory is scoped to the configured business. Tool results are context, never payment evidence.
-- **Razorpay:** Test Mode only. Live key IDs remain blocked. Set `RAZORPAY_WEBHOOK_SECRET` and subscribe the public `POST /api/webhooks/razorpay` endpoint to `payment_link.paid`. A signed event updates the linked business transaction; it does not verify unrelated QR, cash or bank payments. Production onboarding and payment matching are separate work.
+API readiness is `GET /readyz`; it checks database reachability. LiveKit's worker has its own SDK health endpoint (normally production port 8081). SIGTERM/SIGINT stop new API work and drain the memory worker before closing the database. Worker drain and warm capacity are configurable. `MUNIM_VOICE_MAX_JOBS` is a load-based target; managed LiveKit can override custom load functions, so deployment capacity must also be configured there.
+
+Choose worker/API/database regions using actual network measurements. Ensure Groq, Sarvam, Meko datapack/retrieval quotas and LiveKit capacity cover simultaneous shops. No paid provider fallback or voice-isolation add-on is enabled automatically.
+
+## Other Screens and Payments
+
+Transactions provides search, settlement filters, and pagination over its explicitly loaded subset. Insights reads the full account ledger, compares settlement-based money movement, and shows remaining amounts. Entry age is not an invented due date; no profit, bank-balance, or forecasting claims are made.
+
+Razorpay is **Test Mode only**. Expose `POST /api/webhooks/razorpay` through a public HTTPS endpoint and subscribe to `payment_link.paid`. Only verified signed events settle linked requests; unrelated QR/cash/bank payments are not verified. Live keys remain rejected. Per-shop production payment onboarding is not implemented.
+
+## What Remains
+
+- Browser/mobile and real microphone validation, including noisy shops, interruptions, script changes, and Hindi/English voice naturalness.
+- Representative financial accuracy scoring and measured p50/p95 latency, throughput, capacity and provider-limit failure drills; no general performance guarantee is claimed.
+- Production deployment, regional placement, monitoring retention/export, quotas, and end-user privacy/consent controls appropriate to launch.
+- Historical ledger questions through voice, applying a payment to an older due, saved-entry corrections/reversals, and record-session restoration after refresh.
+- Production Razorpay onboarding/reconciliation and outbound reminders.
+- Full abuse/content guardrails and deeper memory lifecycle/retention controls. Promotion and shared staff knowledge are intentionally outside this change.
+- Hackathon build-datapack evidence, judge invitation, feature proposal, and final live on/off demo.
 
 ## Verification
 
-`pnpm build` checks contracts, API, voice worker and web. No automated test suite is included.
-
-Live STT accuracy, Hindi/Hinglish conversation, interrupted audio, TTS voices, provider latency, and real Google OAuth still require configured accounts and a browser with microphone access. A successful build does not establish speech accuracy or latency. Never commit `.env` or use live payment credentials in this build.
+`pnpm build` checks all four packages. No automated test suite or test files are included. Manual provider checks use synthetic shop context and do not create financial records. See [CHANGELOG.md](CHANGELOG.md) for changes. A build or successful provider call does not establish live browser behavior, speech accuracy, latency, or deployment health.

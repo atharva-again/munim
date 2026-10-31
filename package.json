@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@11.24.0",
   "scripts": {
+    "setup:local": "pnpm --filter @munim/contracts build && pnpm db:push && pnpm db:migrate && pnpm voice:download",
+    "dev:all": "pnpm --filter @munim/contracts build && concurrently --kill-others -n api,web,voice \"pnpm --filter @munim/api dev\" \"pnpm --filter @munim/web dev\" \"pnpm voice:dev\"",
     "dev": "pnpm --filter @munim/contracts build && concurrently --kill-others -n api,web -c cyan,green \"pnpm --filter @munim/api dev\" \"pnpm --filter @munim/web dev\"",
     "build": "pnpm --filter @munim/contracts build && pnpm --filter @munim/api build && pnpm --filter @munim/voice build && pnpm --filter @munim/web build",
     "start": "pnpm --filter @munim/api start",
