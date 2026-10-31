@@ -4,6 +4,7 @@ import {
   voiceTokenSchema,
   type TransactionDraft,
 } from "@munim/contracts";
+import { requestJson } from "./http";
 export const sessionSchema = z.object({
   conversation: conversationSchema,
   token: z.string(),
@@ -11,71 +12,65 @@ export const sessionSchema = z.object({
   voiceConfigured: z.boolean(),
 });
 export type RecordingSession = z.infer<typeof sessionSchema>;
-async function request(path: string, token?: string, body?: unknown) {
-  const response = await fetch(`/api/conversations${path}`, {
+function options(session: RecordingSession, body?: unknown): RequestInit {
+  return {
     method: body === undefined ? "GET" : "POST",
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { Authorization: `Bearer ${session.token}` },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const value: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = z.object({ error: z.string() }).safeParse(value);
-    throw new Error(
-      parsed.success ? parsed.data.error : "Could not complete the request.",
-    );
-  }
-  return value;
+  };
 }
 export const conversations = {
-  create: async () => sessionSchema.parse(await request("", undefined, {})),
-  get: async (session: RecordingSession) =>
-    conversationSchema.parse(
-      await request(`/${session.conversation.id}`, session.token),
+  create: () =>
+    requestJson("/api/conversations", sessionSchema, {
+      method: "POST",
+      body: "{}",
+    }),
+  get: (session: RecordingSession) =>
+    requestJson(
+      `/api/conversations/${session.conversation.id}`,
+      conversationSchema,
+      options(session),
     ),
-  turn: async (session: RecordingSession, text: string, requestId: string) =>
-    conversationSchema.parse(
-      await request(`/${session.conversation.id}/turn`, session.token, {
+  turn: (session: RecordingSession, text: string, requestId: string) =>
+    requestJson(
+      `/api/conversations/${session.conversation.id}/turn`,
+      conversationSchema,
+      options(session, {
         text,
         requestId,
         revision: session.conversation.revision,
         channel: "text",
       }),
     ),
-  form: async (
-    session: RecordingSession,
-    draft: TransactionDraft,
-    submit = false,
-  ) =>
-    conversationSchema.parse(
-      await request(`/${session.conversation.id}/form`, session.token, {
+  form: (session: RecordingSession, draft: TransactionDraft, submit = false) =>
+    requestJson(
+      `/api/conversations/${session.conversation.id}/form`,
+      conversationSchema,
+      options(session, {
         draft,
         submit,
         revision: session.conversation.revision,
       }),
     ),
-  reviewed: async (session: RecordingSession) =>
-    conversationSchema.parse(
-      await request(`/${session.conversation.id}/reviewed`, session.token, {
+  reviewed: (session: RecordingSession) =>
+    requestJson(
+      `/api/conversations/${session.conversation.id}/reviewed`,
+      conversationSchema,
+      options(session, {
         revision: session.conversation.revision,
         channel: "screen",
       }),
     ),
-  confirm: async (session: RecordingSession) =>
-    conversationSchema.parse(
-      await request(`/${session.conversation.id}/confirm`, session.token, {
-        revision: session.conversation.revision,
-      }),
+  confirm: (session: RecordingSession) =>
+    requestJson(
+      `/api/conversations/${session.conversation.id}/confirm`,
+      conversationSchema,
+      options(session, { revision: session.conversation.revision }),
     ),
-  voiceToken: async (session: RecordingSession) =>
-    voiceTokenSchema.parse(
-      await request(
-        `/${session.conversation.id}/voice-token`,
-        session.token,
-        {},
-      ),
+  voiceToken: (session: RecordingSession) =>
+    requestJson(
+      `/api/conversations/${session.conversation.id}/voice-token`,
+      voiceTokenSchema,
+      options(session, {}),
     ),
 };

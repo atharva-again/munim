@@ -1,8 +1,12 @@
+import { localizedError } from "./translations";
+import { useI18n } from "./i18n";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { authClient } from "./auth-client";
 import { primaryClass } from "./ui";
 const Workspace = lazy(() => import("./Workspace"));
 export default function AuthGate() {
+  const { t } = useI18n();
+
   const {
     data: session,
     isPending,
@@ -37,7 +41,7 @@ export default function AuthGate() {
             className="grid h-dvh place-items-center text-muted"
             role="status"
           >
-            Opening Munim…
+            {t("Opening Munim…")}
           </div>
         }
       >
@@ -51,13 +55,16 @@ export default function AuthGate() {
           src="/munim-logo.png"
           width={52}
           height={52}
-          alt="Munim"
+          alt={t("Munim")}
           className="mb-8 rounded-xl"
         />
-        <h1 className="text-3xl tracking-tight">Your Books, in Your Words</h1>
+        <h1 className="text-3xl tracking-tight">
+          {t("Your Books, in Your Words")}
+        </h1>
         <p className="mt-4 text-sm leading-6 text-muted">
-          Speak, type, or fill in a form. Keep your business ledger in one
-          place.
+          {t(
+            "Speak, type, or fill in a form. Keep your business ledger in one place.",
+          )}
         </p>
         <button
           type="button"
@@ -72,27 +79,30 @@ export default function AuthGate() {
                 callbackURL: window.location.origin,
               });
               if (result.error)
-                throw new Error(result.error.message || "Sign-in failed.");
+                throw new Error(result.error.message || t("Sign-in failed."));
             } catch (caught) {
               setError(
-                caught instanceof Error ? caught.message : "Sign-in failed.",
+                caught instanceof Error ? caught.message : t("Sign-in failed."),
               );
             } finally {
               setBusy(false);
             }
           }}
         >
-          {busy ? "Connecting…" : "Continue with Google"}
+          {busy ? t("Connecting…") : t("Continue with Google")}
         </button>
         {configured === false && (
           <p className="mt-4 text-xs leading-5 text-muted" role="status">
-            Google sign-in is awaiting setup. Add the Google credentials and
-            Better Auth configuration to enable access.
+            {t(
+              "Google sign-in is awaiting setup. Add the Google credentials and Better Auth configuration to enable access.",
+            )}
           </p>
         )}
         {(error || (configured && sessionError?.message)) && (
           <p role="alert" className="mt-4 text-xs text-status-red">
-            {error || sessionError?.message}
+            {localizedError(
+              error || sessionError?.message || "Sign-in failed.",
+            )}
           </p>
         )}
       </div>

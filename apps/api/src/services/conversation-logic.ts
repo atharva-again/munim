@@ -85,7 +85,7 @@ export function reviewText(
   if (!input) throw new Error("Complete the transaction before reviewing.");
   return language === "en"
     ? `${entrySummary(input, language)}.${dateNote(input, language)} Save it?`
-    : `${entrySummary(input, language)}।${dateNote(input, language)} ${language === "hinglish" ? "Save कर दूँ?" : "लिख दूँ?"}`;
+    : `${entrySummary(input, language)}।${dateNote(input, language)} लिख दूँ?`;
 }
 export function savedText(
   state: Pick<Conversation, "draft" | "replyLanguage">,
@@ -94,7 +94,7 @@ export function savedText(
   if (!input) throw new Error("Complete the transaction before saving.");
   return state.replyLanguage === "en"
     ? `Saved. ${entrySummary(input, "en")}.${dateNote(input, "en")}`
-    : `${state.replyLanguage === "hinglish" ? "Save कर लिया" : "लिख लिया"}। ${entrySummary(input, state.replyLanguage)}।${dateNote(input, state.replyLanguage)}`;
+    : `लिख लिया। ${entrySummary(input, state.replyLanguage)}।${dateNote(input, state.replyLanguage)}`;
 }
 export function clarificationText(
   draft: TransactionDraft,

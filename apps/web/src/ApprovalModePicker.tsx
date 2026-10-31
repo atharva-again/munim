@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import type { ApprovalMode } from "@munim/contracts";
 const choices = [
   {
@@ -21,12 +22,14 @@ export function ApprovalModePicker({
   onChange: (value: ApprovalMode) => void;
   disabled: boolean;
 }) {
+  const { t } = useI18n();
+
   return (
     <fieldset
       disabled={disabled}
       className="grid gap-3 disabled:opacity-100 sm:grid-cols-2"
     >
-      <legend className="sr-only">Saving Preference</legend>
+      <legend className="sr-only">{t("Saving Preference")}</legend>
       {choices.map((choice) => (
         <label
           key={choice.value}
@@ -41,9 +44,9 @@ export function ApprovalModePicker({
             className="mt-0.5 size-4 shrink-0 accent-fg enabled:cursor-pointer"
           />
           <span>
-            <span className="block text-sm">{choice.label}</span>
+            <span className="block text-sm">{t(choice.label)}</span>
             <span className="mt-2 block text-[11px] leading-5 text-muted">
-              {choice.description}
+              {t(choice.description)}
             </span>
           </span>
         </label>

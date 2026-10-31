@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const preferredLanguageSchema = z.enum(["en", "hi", "hinglish"]);
+export const preferredLanguageSchema = z.enum(["en", "hi"]);
 export type PreferredLanguage = z.infer<typeof preferredLanguageSchema>;
 export const approvalModeSchema = z.enum(["approval", "autonomous"]);
 export type ApprovalMode = z.infer<typeof approvalModeSchema>;
@@ -21,13 +21,11 @@ export const approvalModeLabels: Record<ApprovalMode, string> = {
 export const languageLabels: Record<PreferredLanguage, string> = {
   en: "English",
   hi: "Hindi",
-  hinglish: "Hinglish",
 };
 export function greetingFor(language: PreferredLanguage): string {
   return {
     en: "Hello, I'm Munim. Tell me what happened.",
     hi: "नमस्ते, मैं मुनीम हूँ। बताइए, क्या लेन-देन हुआ?",
-    hinglish: "Hi, मैं Munim हूँ। बताइए, क्या entry करनी है?",
   }[language];
 }
 
@@ -132,16 +130,24 @@ export const conversationMessageSchema = z.object({
   channel: z.enum(["voice", "text", "form"]),
   at: z.string(),
 });
+const storedLanguageSchema = z.union([
+  preferredLanguageSchema,
+  z.literal("hinglish").transform((): PreferredLanguage => "hi"),
+]);
+export const voiceActivitySchema = z.object({
+  id: z.string().uuid(),
+  state: z.enum(["processing", "ready", "error"]),
+});
 export const conversationSchema = z
   .object({
-    language: preferredLanguageSchema.default("en"),
-    replyLanguage: preferredLanguageSchema.optional(),
+    language: storedLanguageSchema.default("en"),
+    replyLanguage: storedLanguageSchema.optional(),
     approvalMode: approvalModeSchema.default("approval"),
     id: z.string().uuid(),
     entryId: z.string().uuid().optional(),
     revision: z.number().int(),
     draft: draftSchema,
-    phase: z.enum(["collecting", "review", "saved"]),
+    phase: z.enum(["collecting", "processing", "review", "saved"]),
     messages: z.array(conversationMessageSchema),
     reply: z.string(),
     reviewedRevision: z.number().int().nullable(),

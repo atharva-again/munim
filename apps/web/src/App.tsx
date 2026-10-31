@@ -1,3 +1,5 @@
+import { localizedError } from "./translations";
+import { useI18n } from "./i18n";
 import {
   lazy,
   Suspense,
@@ -65,11 +67,20 @@ const emptySummary: LedgerSummary = {
   openOutflowPaise: 0,
   transactionCount: 0,
 };
-const dateFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
+const dateFormatters = {
+  en: new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  }),
+  hi: new Intl.DateTimeFormat("hi-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  }),
+};
 export default function App({
   preferences,
   onPreferencesChange,
@@ -77,6 +88,8 @@ export default function App({
   preferences: SavedPreferences;
   onPreferencesChange: (preferences: SavedPreferences) => Promise<void>;
 }) {
+  const { t, language } = useI18n();
+
   const [view, setView] = useState<View>("overview");
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -252,16 +265,16 @@ export default function App({
         <button
           type="button"
           className={`${primaryClass} mt-7 w-full`}
-          aria-label="Record Transaction"
+          aria-label={t("Record Transaction")}
           aria-current={view === "record" ? "page" : undefined}
           onPointerEnter={() => void loadRecord()}
           onFocus={() => void loadRecord()}
           onClick={openRecord}
         >
           <Plus size={16} />
-          <span>Record Transaction</span>
+          <span>{t("Record Transaction")}</span>
         </button>
-        <nav className="mt-6 grid gap-1" aria-label="Main Navigation">
+        <nav className="mt-6 grid gap-1" aria-label={t("Main Navigation")}>
           {navigation.map((item) => (
             <button
               type="button"
@@ -275,7 +288,7 @@ export default function App({
               >
                 <item.Icon size={20} strokeWidth={1.6} />
               </span>
-              {item.label}
+              {t(item.label)}
               {item.id === "transactions" && (
                 <span
                   className={`ml-auto rounded-md px-1.5 py-0.5 text-[10px] tabular-nums ${view === item.id ? "text-fg" : "text-muted"}`}
@@ -294,25 +307,25 @@ export default function App({
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm ${view === "settings" ? "bg-soft text-fg" : "text-muted hover:bg-soft hover:text-fg"}`}
           >
             <Settings size={20} strokeWidth={1.6} />
-            Settings
+            {t("Settings")}
           </button>
           <button
             type="button"
             className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-xs text-muted hover:bg-soft hover:text-fg"
             onClick={() => void authClient.signOut()}
           >
-            <LogOut size={18} strokeWidth={1.6} /> Sign Out
+            <LogOut size={18} strokeWidth={1.6} /> {t("Sign Out")}
           </button>
           <button
             type="button"
             role="switch"
             aria-checked={theme === "dark"}
-            aria-label="Dark Mode"
+            aria-label={t("Dark Mode")}
             onClick={toggleTheme}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm text-muted hover:bg-soft hover:text-fg"
           >
             <Moon size={20} strokeWidth={1.6} />
-            <span>Dark Mode</span>
+            <span>{t("Dark Mode")}</span>
             <span
               aria-hidden="true"
               className={`ml-auto flex h-4.5 w-8 items-center rounded-full border p-0.5 transition-colors motion-reduce:transition-none ${theme === "dark" ? "border-fg bg-fg" : "border-line bg-canvas"}`}
@@ -335,15 +348,16 @@ export default function App({
               className="flex shrink-0 items-start gap-3 rounded-lg border border-line p-3 text-xs"
             >
               <CircleHelp size={16} className="shrink-0 text-status-red" />
-              <p>{apiError}</p>
+              <p>{localizedError(apiError)}</p>
             </div>
           )}
           {!loading && !databaseConnected && !apiError && (
             <div className="flex shrink-0 gap-3 rounded-lg border border-line p-3 text-xs">
               <Landmark size={16} className="shrink-0 text-status-yellow" />
               <p>
-                Ledger offline. Connect your database to view and record
-                transactions.
+                {t(
+                  "Ledger offline. Connect your database to view and record transactions.",
+                )}
               </p>
             </div>
           )}
@@ -368,54 +382,58 @@ export default function App({
               <>
                 <header className="flex shrink-0 items-center justify-between gap-4">
                   <div>
-                    <h1 className={headingClass}>Your Business, at a Glance</h1>
+                    <h1 className={headingClass}>
+                      {t("Your Business, at a Glance")}
+                    </h1>
                     <p className="mt-2 hidden text-xs text-muted md:block">
-                      A clear view of the money moving through your business.
+                      {t(
+                        "A clear view of the money moving through your business.",
+                      )}
                     </p>
                   </div>
                   <button
                     type="button"
                     className={`${iconButtonClass} md:hidden`}
-                    aria-label="Sign Out"
+                    aria-label={t("Sign Out")}
                     onClick={() => void authClient.signOut()}
                   >
                     <LogOut size={17} />
                   </button>
                   <span className="hidden text-[11px] text-muted lg:block">
                     {lastUpdated
-                      ? dateFormatter.format(lastUpdated)
-                      : "Connecting…"}
+                      ? dateFormatters[language].format(lastUpdated)
+                      : t("Connecting…")}
                   </span>
                 </header>
                 <section
-                  aria-label="Ledger Summary"
+                  aria-label={t("Ledger Summary")}
                   className={`${panelClass} grid shrink-0 grid-cols-3 divide-x divide-line overflow-hidden`}
                 >
                   {[
                     {
-                      label: "Money Received",
+                      label: t("Money Received"),
                       value: summary.settledInflowPaise,
-                      detail: "Settled incoming",
+                      detail: t("Settled incoming"),
                       Icon: ArrowDownLeft,
                       color: "text-status-green",
                     },
                     {
-                      label: "Money Paid",
+                      label: t("Money Paid"),
                       value: summary.settledOutflowPaise,
-                      detail: "Settled outgoing",
+                      detail: t("Settled outgoing"),
                       Icon: ArrowUpRight,
                       color: "text-status-red",
                     },
                     {
-                      label: "Outstanding",
+                      label: t("Outstanding"),
                       value: summary.openInflowPaise + summary.openOutflowPaise,
-                      detail: "Awaiting settlement",
+                      detail: t("Awaiting settlement"),
                       Icon: FileClock,
                       color: "text-status-yellow",
                     },
                   ].map((metric) => (
                     <article
-                      key={metric.label}
+                      key={t(metric.label)}
                       className="px-2.5 py-3 md:px-5 md:py-4"
                     >
                       <p className="flex min-h-8 items-start gap-1.5 text-[10px] text-muted md:min-h-0 md:text-xs">
@@ -423,7 +441,7 @@ export default function App({
                           size={14}
                           className={`mt-px shrink-0 ${metric.color}`}
                         />
-                        {metric.label}
+                        {t(metric.label)}
                       </p>
                       <p className="mt-2 text-[22px] tracking-tight tabular-nums md:mt-3 md:text-[28px]">
                         {loading
@@ -433,7 +451,7 @@ export default function App({
                             : "—"}
                       </p>
                       <p className="mt-1 text-[10px] leading-relaxed text-muted md:mt-2 md:text-[11px]">
-                        {metric.detail}
+                        {t(metric.detail)}
                       </p>
                     </article>
                   ))}
@@ -442,7 +460,9 @@ export default function App({
                   className={`${panelClass} flex shrink-0 items-center justify-between gap-3 bg-soft px-4 py-4 md:px-6`}
                 >
                   <div>
-                    <h2 className="text-[11px] text-muted">Net Cash Flow</h2>
+                    <h2 className="text-[11px] text-muted">
+                      {t("Net Cash Flow")}
+                    </h2>
                     <p className="mt-1 text-[28px] tracking-tighter tabular-nums md:text-[32px]">
                       {loading || !databaseConnected
                         ? "—"
@@ -452,20 +472,23 @@ export default function App({
                           )}
                     </p>
                     <p className="mt-1 hidden text-[11px] text-muted md:block">
-                      Received minus paid, across your ledger.
+                      {t("Received minus paid, across your ledger.")}
                     </p>
                   </div>
                   <div className="grid gap-2 md:grid-cols-2 md:gap-10">
                     {[
-                      { label: "To Receive", value: summary.openInflowPaise },
-                      { label: "To Pay", value: summary.openOutflowPaise },
+                      {
+                        label: t("To Receive"),
+                        value: summary.openInflowPaise,
+                      },
+                      { label: t("To Pay"), value: summary.openOutflowPaise },
                     ].map((item) => (
                       <div
-                        key={item.label}
+                        key={t(item.label)}
                         className="flex items-center justify-between gap-4 md:grid md:gap-2"
                       >
                         <span className="text-[10px] text-muted md:text-xs">
-                          {item.label}
+                          {t(item.label)}
                         </span>
                         <p className="text-sm tabular-nums md:text-xl">
                           {loading || !databaseConnected
@@ -480,13 +503,13 @@ export default function App({
                   className={`${panelClass} flex min-h-0 flex-1 flex-col overflow-hidden`}
                 >
                   <header className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
-                    <h2 className="text-sm">Recent Transactions</h2>
+                    <h2 className="text-sm">{t("Recent Transactions")}</h2>
                     <button
                       type="button"
                       className="flex items-center gap-2 text-[11px] text-muted hover:text-fg"
                       onClick={() => setView("transactions")}
                     >
-                      View All
+                      {t("View All")}
                       <ArrowUpRight size={14} />
                     </button>
                   </header>
@@ -512,7 +535,7 @@ export default function App({
         </div>
       </main>
       <nav
-        aria-label="Mobile Navigation"
+        aria-label={t("Mobile Navigation")}
         className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-line bg-canvas px-2 pt-2 pb-[max(10px,env(safe-area-inset-bottom))] md:hidden"
       >
         {navigation.map((item) => (
@@ -529,15 +552,15 @@ export default function App({
               className={view === item.id ? "text-fg" : ""}
             />
             {item.id === "memory"
-              ? "Memory"
+              ? t("Memory")
               : item.id === "transactions"
-                ? "Ledger"
+                ? t("Ledger")
                 : item.label}
           </button>
         ))}
         <button
           type="button"
-          aria-label="Record Transaction"
+          aria-label={t("Record Transaction")}
           aria-current={view === "record" ? "page" : undefined}
           onPointerEnter={() => void loadRecord()}
           onFocus={() => void loadRecord()}
@@ -545,17 +568,17 @@ export default function App({
           className="grid justify-items-center gap-1 py-1.5 text-[10px] text-fg"
         >
           <Plus size={18} strokeWidth={1.5} />
-          Record
+          {t("Record")}
         </button>
         <button
           type="button"
-          aria-label="Settings"
+          aria-label={t("Settings")}
           aria-current={view === "settings" ? "page" : undefined}
           onClick={() => setView("settings")}
           className={`grid justify-items-center gap-1 py-1.5 text-[10px] ${view === "settings" ? "text-fg" : "text-muted"}`}
         >
           <Settings size={18} strokeWidth={1.5} />
-          Settings
+          {t("Settings")}
         </button>
       </nav>
       {toast && (
@@ -568,11 +591,11 @@ export default function App({
           ) : (
             <CircleHelp size={16} className="text-status-red" />
           )}
-          <span>{toast.message}</span>
+          <span>{t(toast.message)}</span>
           <button
             type="button"
             className={iconButtonClass}
-            aria-label="Dismiss"
+            aria-label={t("Dismiss")}
             onClick={() => setToast(null)}
           >
             <X size={15} />

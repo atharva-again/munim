@@ -10,12 +10,14 @@ import {
   type JobContext,
   type llm,
 } from "@livekit/agents";
+import { RoomEvent } from "@livekit/rtc-node";
 import * as silero from "@livekit/agents-plugin-silero";
 import {
   conversationSchema,
   greetingFor,
   type Conversation,
   type PreferredLanguage,
+  type voiceActivitySchema,
 } from "@munim/contracts";
 import { SarvamRealtimeSTT, SarvamStreamingTTS } from "./sarvam.js";
 config({ path: "../../.env" });
@@ -24,22 +26,20 @@ const metadataSchema = z.object({
   id: z.string().uuid(),
   token: z.string().min(32),
 });
-const savedNotices: Record<PreferredLanguage, string> = {
-  en: "That entry is saved. Choose New Entry to record another transaction.",
-  hi: "वह लेन-देन सेव हो गया है। अगला लेन-देन लिखने के लिए नया लेन-देन चुनिए।",
-  hinglish: "वह entry save हो गई है। अगली entry के लिए New Entry चुनिए।",
-};
-const failureNotices: Record<PreferredLanguage, string> = {
-  en: "I could not finish that. Please check the draft on screen before trying again.",
-  hi: "यह पूरा नहीं हो पाया। दोबारा कोशिश करने से पहले स्क्रीन पर विवरण देख लीजिए।",
-  hinglish:
-    "यह पूरा नहीं हो पाया। दोबारा try करने से पहले screen पर draft देख लीजिए।",
+type Activity = z.infer<typeof voiceActivitySchema>["state"];
+const failures: Record<PreferredLanguage, string> = {
+  en: "I couldn’t finish that. Please say it again or type it.",
+  hi: "यह बात पूरी नहीं हो पाई। फिर से बोलें या लिखकर बताएँ।",
 };
 class MunimAgent extends voice.Agent {
   private language: PreferredLanguage = "en";
+  private announcedEntry: string | null = null;
   constructor(
     private readonly connection: z.infer<typeof metadataSchema>,
-    private readonly publish: (state: Conversation) => Promise<void>,
+    private readonly publish: {
+      conversation: (state: Conversation) => Promise<void>;
+      activity: (state: Activity) => Promise<void>;
+    },
   ) {
     super({
       instructions:
@@ -67,25 +67,36 @@ class MunimAgent extends voice.Agent {
     this.language = state.language;
     return state;
   }
+  async screenSaved() {
+    const state = await this.request();
+    if (state.phase !== "saved" || state.transactionId === this.announcedEntry)
+      return;
+    this.announcedEntry = state.transactionId;
+    await this.session.interrupt({ force: true }).await;
+    const speech = this.session.say(state.reply, { allowInterruptions: true });
+    await speech.waitForPlayout();
+  }
   override async onUserTurnCompleted(
     _context: llm.ChatContext,
     message: llm.ChatMessage,
   ) {
     try {
+      await this.publish.activity("processing").catch(() => {});
       const before = await this.request();
-      if (before.phase === "saved" && before.approvalMode === "approval") {
-        this.session.say(savedNotices[this.language]);
-        throw new voice.StopResponse();
-      }
       const state = await this.request("turn", {
         requestId: randomUUID(),
         revision: before.revision,
         text: message.textContent,
         channel: "voice",
       });
-      await this.publish(state).catch((error) =>
-        console.error("[voice-update]", { conversationId: state.id, error }),
-      );
+      if (state.phase === "saved") this.announcedEntry = state.transactionId;
+      await this.publish
+        .conversation(state)
+        .catch((error) =>
+          console.error("[voice-update]", { conversationId: state.id, error }),
+        );
+      if (state.phase === "review" && this.announcedEntry === state.entryId)
+        throw new voice.StopResponse();
       const speech = this.session.say(state.reply, {
         allowInterruptions: true,
       });
@@ -105,7 +116,10 @@ class MunimAgent extends voice.Agent {
         conversationId: this.connection.id,
         error,
       });
-      this.session.say(failureNotices[this.language]);
+      await this.publish.activity("error").catch(() => {});
+      this.session.say(failures[this.language]);
+    } finally {
+      await this.publish.activity("ready").catch(() => {});
     }
     throw new voice.StopResponse();
   }
@@ -116,13 +130,30 @@ export default defineAgent({
     const key = process.env.SARVAM_API_KEY;
     if (!key) throw new Error("SARVAM_API_KEY is required.");
     await ctx.connect();
-    const agent = new MunimAgent(metadata, async (state) => {
+    let ownerTimeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        ctx.waitForParticipant(`owner-${metadata.id}`),
+        new Promise<never>((_, reject) => {
+          ownerTimeout = setTimeout(
+            () => reject(new Error("Voice caller did not join.")),
+            30000,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(ownerTimeout);
+    }
+    const send = async (topic: string, data: unknown) => {
       await ctx.room.localParticipant?.publishData(
-        new TextEncoder().encode(
-          JSON.stringify({ id: state.id, revision: state.revision }),
-        ),
-        { reliable: true, topic: "munim.conversation" },
+        new TextEncoder().encode(JSON.stringify(data)),
+        { reliable: true, topic },
       );
+    };
+    const agent = new MunimAgent(metadata, {
+      conversation: (state) =>
+        send("munim.conversation", { id: state.id, revision: state.revision }),
+      activity: (state) => send("munim.voice", { id: metadata.id, state }),
     });
     const initialState = await agent.request();
     const session = new voice.AgentSession({
@@ -141,6 +172,41 @@ export default defineAgent({
         endpointing: { minDelay: 200, maxDelay: 1800 },
       },
     });
+    ctx.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (participant.identity === `owner-${metadata.id}`) void session.close();
+    });
+    ctx.room.on(RoomEvent.DataReceived, (payload, participant, _, topic) => {
+      if (
+        topic !== "munim.entry.saved" ||
+        participant?.identity !== `owner-${metadata.id}`
+      )
+        return;
+      try {
+        const data = z
+          .object({ id: z.string().uuid() })
+          .safeParse(JSON.parse(new TextDecoder().decode(payload)));
+        if (data.success && data.data.id === metadata.id)
+          void agent.screenSaved().catch((error) =>
+            console.error("[voice-screen-confirm]", {
+              conversationId: metadata.id,
+              error,
+            }),
+          );
+      } catch {}
+    });
+    session.on(voice.AgentSessionEventTypes.Close, () =>
+      ctx.shutdown("Voice session ended"),
+    );
+    const lifetime = setTimeout(() => void session.close(), 20 * 60000);
+    ctx.addShutdownCallback(async () => {
+      clearTimeout(lifetime);
+      await session.close();
+    });
+    if (!ctx.room.remoteParticipants.has(`owner-${metadata.id}`)) {
+      clearTimeout(lifetime);
+      ctx.shutdown("Voice caller left");
+      return;
+    }
     await session.start({
       agent,
       room: ctx.room,
@@ -153,20 +219,10 @@ export default defineAgent({
       },
       inputOptions: { textEnabled: false },
     });
-    session.on(voice.AgentSessionEventTypes.Close, () =>
-      ctx.shutdown("Voice session ended"),
-    );
-    const lifetime = setTimeout(() => void session.close(), 20 * 60_000);
-    ctx.addShutdownCallback(async () => {
-      clearTimeout(lifetime);
-      await session.close();
+    await send("munim.voice", { id: metadata.id, state: "ready" });
+    const greeting = session.say(greetingFor(initialState.language), {
+      allowInterruptions: true,
     });
-    const greeting = session.say(
-      initialState.phase === "saved" && initialState.approvalMode === "approval"
-        ? savedNotices[initialState.language]
-        : greetingFor(initialState.language),
-      { allowInterruptions: true },
-    );
     await greeting.waitForPlayout();
     if (
       initialState.phase === "review" &&

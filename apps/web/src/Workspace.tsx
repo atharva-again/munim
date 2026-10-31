@@ -1,3 +1,4 @@
+import { localizedError } from "./translations";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   type PreferredLanguage,
@@ -5,6 +6,7 @@ import {
   type SavedPreferences,
   type Preferences,
 } from "@munim/contracts";
+import { useI18n } from "./i18n";
 import { api } from "./api";
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { LanguagePicker } from "./LanguagePicker";
@@ -18,6 +20,7 @@ type Step =
   | { kind: "language" }
   | { kind: "approval"; language: PreferredLanguage };
 export default function Workspace() {
+  const { t, setLanguage } = useI18n();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [step, setStep] = useState<Step>({ kind: "language" });
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -35,8 +38,10 @@ export default function Workspace() {
     api
       .preferences(controller.signal)
       .then((preference) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          if (preference.language) setLanguage(preference.language);
           setState({ kind: "ready", preferences: preference });
+        }
       })
       .catch((caught) => {
         if (!controller.signal.aborted)
@@ -49,9 +54,10 @@ export default function Workspace() {
           });
       });
     return () => controller.abort();
-  }, [retry]);
+  }, [retry, setLanguage]);
   const savePreferences = async (preferences: SavedPreferences) => {
     const saved = await api.savePreferences(preferences);
+    setLanguage(saved.language);
     setState({ kind: "ready", preferences: saved });
   };
   const language =
@@ -68,7 +74,7 @@ export default function Workspace() {
       <Suspense
         fallback={
           <p className="grid h-dvh place-items-center text-muted" role="status">
-            Opening Munim…
+            {t("Opening Munim…")}
           </p>
         }
       >
@@ -93,12 +99,12 @@ export default function Workspace() {
         />
         {state.kind === "loading" ? (
           <p role="status" className="text-sm text-muted">
-            Loading Your Preferences…
+            {t("Loading Your Preferences…")}
           </p>
         ) : state.kind === "error" ? (
           <div>
             <p role="alert" className="text-sm text-status-red">
-              {state.message}
+              {localizedError(state.message)}
             </p>
             <button
               type="button"
@@ -108,7 +114,7 @@ export default function Workspace() {
                 setRetry((v) => v + 1);
               }}
             >
-              Try Again
+              {t("Try Again")}
             </button>
           </div>
         ) : (
@@ -135,7 +141,7 @@ export default function Workspace() {
                 setError(
                   caught instanceof Error
                     ? caught.message
-                    : "Could not save your preferences.",
+                    : t("Could not save your preferences."),
                 );
               } finally {
                 setBusy(false);
@@ -143,7 +149,9 @@ export default function Workspace() {
             }}
           >
             <p className="mb-3 text-[11px] text-muted">
-              Step {step.kind === "language" ? "1" : "2"} of 2
+              {t("Step {step} of 2", {
+                step: step.kind === "language" ? 1 : 2,
+              })}
             </p>
             <h1
               ref={headingRef}
@@ -151,19 +159,26 @@ export default function Workspace() {
               className="text-2xl tracking-tight outline-none"
             >
               {step.kind === "language"
-                ? "How Should Munim Speak?"
-                : "How Should Entries Be Saved?"}
+                ? t("Choose Your Language")
+                : t("How Should Entries Be Saved?")}
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted">
               {step.kind === "language"
-                ? "Choose the language for your greeting and default replies. You can still speak Hindi, English, or Hinglish at any time."
-                : "Choose whether Munim asks for approval or saves complete entries for you."}
+                ? t(
+                    "Choose the language for the app and Munim’s replies. You can speak Hindi, English, or both.",
+                  )
+                : t(
+                    "Choose whether Munim asks for approval or saves complete entries for you.",
+                  )}
             </p>
             <div className="mt-7">
               {step.kind === "language" ? (
                 <LanguagePicker
                   value={language}
-                  onChange={setSelected}
+                  onChange={(value) => {
+                    setSelected(value);
+                    setLanguage(value);
+                  }}
                   disabled={busy}
                 />
               ) : (
@@ -179,8 +194,10 @@ export default function Workspace() {
             </div>
             <p className="mt-4 text-[11px] text-muted">
               {step.kind === "language"
-                ? "You can change your language later in Settings."
-                : "You can change this later in Settings. The form always waits for you to submit."}
+                ? t("You can change your language later in Settings.")
+                : t(
+                    "You can change this later in Settings. The form always waits for you to submit.",
+                  )}
             </p>
             <div className="mt-6 flex items-center justify-between gap-3">
               {step.kind === "approval" && (
@@ -193,7 +210,7 @@ export default function Workspace() {
                     setStep({ kind: "language" });
                   }}
                 >
-                  Back
+                  {t("Back")}
                 </button>
               )}
               <button
@@ -204,15 +221,15 @@ export default function Workspace() {
                 }
               >
                 {busy
-                  ? "Saving…"
+                  ? t("Saving…")
                   : step.kind === "language"
-                    ? "Continue"
-                    : "Finish Setup"}
+                    ? t("Continue")
+                    : t("Finish Setup")}
               </button>
             </div>
             {error && (
               <p className="mt-4 text-xs text-status-red" role="alert">
-                {error}
+                {localizedError(error)}
               </p>
             )}
           </form>

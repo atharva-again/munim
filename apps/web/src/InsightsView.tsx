@@ -1,3 +1,5 @@
+import { localizedError } from "./translations";
+import { useI18n } from "./i18n";
 import { useEffect, useState } from "react";
 import {
   ArrowDownLeft,
@@ -35,19 +37,38 @@ const ageLabels = {
   "7to29": "7–29 Days",
   "30plus": "30+ Days",
 };
-const asOfFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "Asia/Kolkata",
-});
-function changeText(current: number, previous: number, hasPrevious: boolean) {
-  if (!hasPrevious) return "No payments in the previous period.";
+const asOfFormatters = {
+  en: new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+  }),
+  hi: new Intl.DateTimeFormat("hi-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+  }),
+};
+function changeText(
+  t: ReturnType<typeof useI18n>["t"],
+  current: number,
+  previous: number,
+  hasPrevious: boolean,
+) {
+  if (!hasPrevious) return t("No payments in the previous period.");
   const difference = current - previous;
   return difference === 0
-    ? "Unchanged from the previous period."
-    : `${formatRupees(Math.abs(difference))} ${difference > 0 ? "more" : "less"} than the previous period.`;
+    ? t("Unchanged from the previous period.")
+    : t(
+        difference > 0
+          ? "{amount} more than the previous period."
+          : "{amount} less than the previous period.",
+        { amount: formatRupees(Math.abs(difference)) },
+      );
 }
 
 export default function InsightsView({
@@ -57,6 +78,8 @@ export default function InsightsView({
   version: number;
   onRecord: () => void;
 }) {
+  const { t, language } = useI18n();
+
   const [period, setPeriod] = useState<InsightQuery["period"]>("30");
   const [direction, setDirection] =
     useState<InsightQuery["direction"]>("inflow");
@@ -111,8 +134,21 @@ export default function InsightsView({
   const copyEntry = async (entry: Insights["entries"]["items"][number]) => {
     const note =
       direction === "inflow"
-        ? `${entry.counterparty ? `Hello ${entry.counterparty}, ` : "Hello, "}${formatRupees(entry.remainingPaise)} remains due for ${entry.description} (${formatDate(entry.occurredAt)}). Please let me know when you can make the payment.`
-        : `${entry.counterparty || "Supplier"}: ${formatRupees(entry.remainingPaise)} still to pay for ${entry.description} (${formatDate(entry.occurredAt)}).`;
+        ? t(
+            "Hello {name}, {amount} remains due for {description} ({date}). Please let me know when you can pay.",
+            {
+              name: entry.counterparty || "",
+              amount: formatRupees(entry.remainingPaise),
+              description: entry.description,
+              date: formatDate(entry.occurredAt),
+            },
+          )
+        : t("{name}: {amount} still to pay for {description} ({date}).", {
+            name: entry.counterparty || t("Supplier"),
+            amount: formatRupees(entry.remainingPaise),
+            description: entry.description,
+            date: formatDate(entry.occurredAt),
+          });
     setCopyMessage("");
     setManualNote("");
     try {
@@ -129,14 +165,16 @@ export default function InsightsView({
   };
   return (
     <section className="flex min-h-0 flex-col gap-5 pb-3">
-      <h1 className="sr-only">Insights</h1>
+      <h1 className="sr-only">{t("Insights")}</h1>
       <header className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted">
-          Know what came in, what went out, and what still needs attention.
+          {t(
+            "Know what came in, what went out, and what still needs attention.",
+          )}
         </p>
         <div
           role="group"
-          aria-label="Money Movement Period"
+          aria-label={t("Money Movement Period")}
           className="flex gap-1 rounded-lg border border-line p-1"
         >
           {periods.map((item) => (
@@ -147,7 +185,7 @@ export default function InsightsView({
               onClick={() => setPeriod(item.value)}
               className={`rounded-md px-3 py-2 text-xs ${period === item.value ? "bg-soft text-fg" : "text-muted hover:text-fg"}`}
             >
-              {item.label}
+              {t(item.label)}
             </button>
           ))}
         </div>
@@ -159,15 +197,15 @@ export default function InsightsView({
         >
           <p className="flex items-center gap-2">
             <StatusDot tone="error" />
-            {error}
-            {data ? " Showing the last successful update." : ""}
+            {localizedError(error)}
+            {data ? t(" Showing the last successful update.") : ""}
           </p>
           <button
             type="button"
             className={buttonClass}
             onClick={() => setRetry((v) => v + 1)}
           >
-            Try Again
+            {t("Try Again")}
           </button>
         </div>
       )}
@@ -179,21 +217,23 @@ export default function InsightsView({
         <div className={panelClass}>
           <EmptyState
             icon={<ChartNoAxesCombined size={26} strokeWidth={1.5} />}
-            title="Record Your First Entry"
-            detail="Money movement, outstanding balances, and payment priorities will appear here as you use your ledger."
+            title={t("Record Your First Entry")}
+            detail={t(
+              "Money movement, outstanding balances, and payment priorities will appear here as you use your ledger.",
+            )}
             action={
               <button type="button" className={primaryClass} onClick={onRecord}>
                 <Plus size={15} />
-                Record Transaction
+                {t("Record Transaction")}
               </button>
             }
           />
         </div>
       ) : (
         <>
-          <section className={panelClass} aria-label="Money Movement">
+          <section className={panelClass} aria-label={t("Money Movement")}>
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4">
-              <h2 className="text-sm">Money Movement</h2>
+              <h2 className="text-sm">{t("Money Movement")}</h2>
               <span className="text-[11px] text-muted">
                 {formatDate(data.period.from)} – {formatDate(data.period.to)}
               </span>
@@ -201,21 +241,21 @@ export default function InsightsView({
             <div className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               {[
                 {
-                  label: "Money Received",
+                  label: t("Money Received"),
                   value: data.activity.current.receivedPaise,
                   previous: data.activity.previous.receivedPaise,
                   tone: "success",
                   Icon: ArrowDownLeft,
                 },
                 {
-                  label: "Money Paid",
+                  label: t("Money Paid"),
                   value: data.activity.current.paidPaise,
                   previous: data.activity.previous.paidPaise,
                   tone: "error",
                   Icon: ArrowUpRight,
                 },
                 {
-                  label: "Net Movement",
+                  label: t("Net Movement"),
                   value:
                     data.activity.current.receivedPaise -
                     data.activity.current.paidPaise,
@@ -226,7 +266,7 @@ export default function InsightsView({
                   Icon: ChartNoAxesCombined,
                 },
               ].map((metric) => (
-                <article key={metric.label} className="min-w-0 px-5 py-5">
+                <article key={t(metric.label)} className="min-w-0 px-5 py-5">
                   <p className="flex items-center gap-2 text-xs text-muted">
                     <metric.Icon
                       size={14}
@@ -238,13 +278,14 @@ export default function InsightsView({
                             : "text-muted"
                       }
                     />
-                    {metric.label}
+                    {t(metric.label)}
                   </p>
                   <p className="mt-3 break-words text-[26px] tracking-tight tabular-nums">
                     {formatRupees(metric.value)}
                   </p>
                   <p className="mt-2 text-[11px] leading-5 text-muted">
                     {changeText(
+                      t,
                       metric.value,
                       metric.previous,
                       data.activity.previous.paymentCount > 0,
@@ -254,37 +295,43 @@ export default function InsightsView({
               ))}
             </div>
             <p className="border-t border-line px-5 py-3 text-[11px] leading-5 text-muted">
-              {data.activity.current.paymentCount} recorded payments, including
-              part payments. Transfers are excluded. Compared with the previous{" "}
-              {data.period.days} days; today is still in progress.
+              {t(
+                "{count} recorded payments, including part payments. Transfers are excluded. Compared with the previous {days} days; today is still in progress.",
+                {
+                  count: data.activity.current.paymentCount,
+                  days: data.period.days,
+                },
+              )}
             </p>
           </section>
           <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)]">
             <section
               className={`${panelClass} min-w-0`}
-              aria-label="Outstanding Entries"
+              aria-label={t("Outstanding Entries")}
             >
               <header className="border-b border-line p-5">
-                <h2 className="text-sm">Outstanding Now</h2>
+                <h2 className="text-sm">{t("Outstanding Now")}</h2>
                 <p className="mt-2 text-[11px] leading-5 text-muted">
-                  Across your full ledger. Highest remaining amounts first.
+                  {t(
+                    "Across your full ledger. Highest remaining amounts first.",
+                  )}
                 </p>
                 <div
                   className="mt-4 grid grid-cols-2 gap-3"
                   role="group"
-                  aria-label="Outstanding Money Direction"
+                  aria-label={t("Outstanding Money Direction")}
                 >
                   {(
                     [
                       {
                         value: "inflow",
-                        label: "To Collect",
+                        label: t("To Collect"),
                         amount: data.outstanding.receivePaise,
                         count: data.outstanding.receiveCount,
                       },
                       {
                         value: "outflow",
-                        label: "To Pay",
+                        label: t("To Pay"),
                         amount: data.outstanding.payPaise,
                         count: data.outstanding.payCount,
                       },
@@ -306,7 +353,7 @@ export default function InsightsView({
                         <StatusDot
                           tone={item.value === "inflow" ? "warning" : "info"}
                         />
-                        {item.label}
+                        {t(item.label)}
                       </span>
                       <span className="mt-2 block break-words text-xl tracking-tight tabular-nums">
                         {formatRupees(item.amount)}
@@ -319,13 +366,13 @@ export default function InsightsView({
                 </div>
                 {age !== "all" && (
                   <div className="mt-4 flex items-center justify-between text-xs">
-                    <span>{ageLabels[age]}</span>
+                    <span>{t(ageLabels[age])}</span>
                     <button
                       type="button"
                       className="text-muted hover:text-fg"
                       onClick={() => selectAge("all")}
                     >
-                      Show All Ages
+                      {t("Show All Ages")}
                     </button>
                   </div>
                 )}
@@ -342,14 +389,16 @@ export default function InsightsView({
                   title={
                     age === "all"
                       ? direction === "inflow"
-                        ? "Nothing to Collect"
-                        : "Nothing to Pay"
-                      : "No Entries in This Age Range"
+                        ? t("Nothing to Collect")
+                        : t("Nothing to Pay")
+                      : t("No Entries in This Age Range")
                   }
                   detail={
                     age === "all"
-                      ? "No outstanding entries are recorded in this direction."
-                      : "Choose another age range to see more entries."
+                      ? t(
+                          "No outstanding entries are recorded in this direction.",
+                        )
+                      : t("Choose another age range to see more entries.")
                   }
                 />
               ) : (
@@ -369,7 +418,7 @@ export default function InsightsView({
                       >
                         <span className="min-w-0">
                           <span className="block truncate text-sm">
-                            {entry.counterparty || "Name Not Recorded"}
+                            {entry.counterparty || t("Name Not Recorded")}
                           </span>
                           <span className="mt-1 block truncate text-xs text-muted">
                             {entry.description}
@@ -378,10 +427,11 @@ export default function InsightsView({
                             <StatusDot
                               tone={entry.ageDays >= 30 ? "warning" : "info"}
                             />
-                            Recorded{" "}
                             {entry.ageDays === 0
-                              ? "today"
-                              : `${entry.ageDays} days ago`}
+                              ? t("Recorded today")
+                              : t("Recorded {days} days ago", {
+                                  days: entry.ageDays,
+                                })}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
@@ -404,27 +454,31 @@ export default function InsightsView({
                           </p>
                           <dl className="mt-4 grid grid-cols-2 gap-4 text-xs">
                             <div>
-                              <dt className="text-muted">Original Amount</dt>
+                              <dt className="text-muted">
+                                {t("Original Amount")}
+                              </dt>
                               <dd className="mt-1 tabular-nums">
                                 {formatRupees(entry.amountPaise)}
                               </dd>
                             </div>
                             <div>
-                              <dt className="text-muted">Already Paid</dt>
+                              <dt className="text-muted">
+                                {t("Already Paid")}
+                              </dt>
                               <dd className="mt-1 tabular-nums">
                                 {formatRupees(entry.paidPaise)}
                               </dd>
                             </div>
                             <div>
-                              <dt className="text-muted">Recorded On</dt>
+                              <dt className="text-muted">{t("Recorded On")}</dt>
                               <dd className="mt-1">
                                 {formatDate(entry.occurredAt)}
                               </dd>
                             </div>
                             <div>
-                              <dt className="text-muted">Type</dt>
+                              <dt className="text-muted">{t("Type")}</dt>
                               <dd className="mt-1">
-                                {transactionKindLabels[entry.kind]}
+                                {t(transactionKindLabels[entry.kind])}
                               </dd>
                             </div>
                           </dl>
@@ -435,20 +489,20 @@ export default function InsightsView({
                           >
                             <Copy size={14} />
                             {direction === "inflow"
-                              ? "Copy Reminder"
-                              : "Copy Details"}
+                              ? t("Copy Reminder")
+                              : t("Copy Details")}
                           </button>
                           {copyMessage && (
                             <p
                               className="mt-3 text-[11px] text-muted"
                               role="status"
                             >
-                              {copyMessage}
+                              {t(copyMessage)}
                             </p>
                           )}
                           {manualNote && (
                             <textarea
-                              aria-label="Payment Note to Copy"
+                              aria-label={t("Payment Note to Copy")}
                               readOnly
                               className="mt-3 min-h-24 w-full rounded-md border border-line bg-canvas p-3 text-xs leading-5"
                               value={manualNote}
@@ -463,14 +517,21 @@ export default function InsightsView({
               <footer className="flex items-center justify-between gap-3 border-t border-line px-5 py-3 text-[11px] text-muted">
                 <span>
                   {data.entries.total
-                    ? `${data.entries.page * 20 + 1}–${Math.min((data.entries.page + 1) * 20, data.entries.total)} of ${data.entries.total}`
-                    : "0 entries"}
+                    ? t("{from}–{to} of {total}", {
+                        from: data.entries.page * 20 + 1,
+                        to: Math.min(
+                          (data.entries.page + 1) * 20,
+                          data.entries.total,
+                        ),
+                        total: data.entries.total,
+                      })
+                    : t("0 entries")}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     className={iconButtonClass}
-                    aria-label="Previous Entries"
+                    aria-label={t("Previous Entries")}
                     disabled={busy || data.entries.page === 0}
                     onClick={() => {
                       setPage(data.entries.page - 1);
@@ -482,7 +543,7 @@ export default function InsightsView({
                   <button
                     type="button"
                     className={iconButtonClass}
-                    aria-label="Next Entries"
+                    aria-label={t("Next Entries")}
                     disabled={
                       busy || (data.entries.page + 1) * 20 >= data.entries.total
                     }
@@ -497,22 +558,29 @@ export default function InsightsView({
               </footer>
             </section>
             <div className="grid gap-5">
-              <section className={panelClass} aria-label="Outstanding by Age">
+              <section
+                className={panelClass}
+                aria-label={t("Outstanding by Age")}
+              >
                 <header className="px-5 pt-5">
-                  <h2 className="text-sm">Outstanding by Age</h2>
+                  <h2 className="text-sm">{t("Outstanding by Age")}</h2>
                   <p className="mt-2 text-[11px] leading-5 text-muted">
-                    Age starts at the entry date. Due dates are not recorded.
+                    {t(
+                      "Age starts at the entry date. Due dates are not recorded.",
+                    )}
                   </p>
                 </header>
                 <div className="overflow-x-auto p-5">
                   <table className="w-full text-left text-xs">
                     <thead className="text-[10px] text-muted">
                       <tr>
-                        <th className="pb-3 font-normal">Age</th>
+                        <th className="pb-3 font-normal">{t("Age")}</th>
                         <th className="pb-3 text-right font-normal">
-                          To Collect
+                          {t("To Collect")}
                         </th>
-                        <th className="pb-3 text-right font-normal">To Pay</th>
+                        <th className="pb-3 text-right font-normal">
+                          {t("To Pay")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -532,7 +600,7 @@ export default function InsightsView({
                                 )
                               }
                             >
-                              {ageLabels[bucket.bucket]}
+                              {t(ageLabels[bucket.bucket])}
                             </button>
                           </td>
                           <td className="py-2 text-right text-[11px] tabular-nums">
@@ -547,16 +615,19 @@ export default function InsightsView({
                   </table>
                 </div>
               </section>
-              <section className={panelClass} aria-label="Where Money Went">
+              <section
+                className={panelClass}
+                aria-label={t("Where Money Went")}
+              >
                 <header className="border-b border-line px-5 py-4">
-                  <h2 className="text-sm">Where Money Went</h2>
+                  <h2 className="text-sm">{t("Where Money Went")}</h2>
                   <p className="mt-2 text-[11px] text-muted">
-                    Actual payments in the selected period.
+                    {t("Actual payments in the selected period.")}
                   </p>
                 </header>
                 {data.outflows.length === 0 ? (
                   <p className="p-5 text-xs leading-6 text-muted">
-                    No outgoing payments recorded in this period.
+                    {t("No outgoing payments recorded in this period.")}
                   </p>
                 ) : (
                   <ul className="divide-y divide-line">
@@ -567,16 +638,17 @@ export default function InsightsView({
                       >
                         <div>
                           <p className="text-xs">
-                            {transactionKindLabels[item.kind]}
+                            {t(transactionKindLabels[item.kind])}
                           </p>
                           <p className="mt-1 text-[10px] text-muted">
-                            {item.paymentCount} payments ·{" "}
-                            {Math.round(
-                              (item.amountPaise /
-                                data.activity.current.paidPaise) *
-                                100,
-                            )}
-                            % of money paid
+                            {t("{count} payments · {share}% of money paid", {
+                              count: item.paymentCount,
+                              share: Math.round(
+                                (item.amountPaise /
+                                  data.activity.current.paidPaise) *
+                                  100,
+                              ),
+                            })}
                           </p>
                         </div>
                         <span className="text-xs tabular-nums">
@@ -590,9 +662,11 @@ export default function InsightsView({
             </div>
           </div>
           <footer className="text-[10px] leading-5 text-muted">
-            Full-ledger calculations · Updated{" "}
-            {asOfFormatter.format(new Date(data.asOf))} IST. Money movement
-            reflects recorded payments, not profit or your account balance.
+            {t("Full-ledger calculations · Updated")}{" "}
+            {asOfFormatters[language].format(new Date(data.asOf))}{" "}
+            {t(
+              "IST. Money movement reflects recorded payments, not profit or your account balance.",
+            )}
           </footer>
         </>
       )}

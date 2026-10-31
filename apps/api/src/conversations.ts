@@ -266,13 +266,11 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         .update(conversations)
         .set({ state })
         .where(eq(conversations.id, id));
-      const room = `munim-${id}`;
+      const room = `munim-${id}-${randomUUID()}`;
       const client = new AgentDispatchClient(url, key, secret);
-      const dispatches = await client.listDispatch(room).catch(() => []);
-      if (!dispatches.some((d) => d.agentName === "munim"))
-        await client.createDispatch(room, "munim", {
-          metadata: JSON.stringify({ id, token: bearer }),
-        });
+      await client.createDispatch(room, "munim", {
+        metadata: JSON.stringify({ id, token: bearer }),
+      });
       const token = new AccessToken(key, secret, {
         identity: `owner-${id}`,
         ttl: "10m",
@@ -298,7 +296,20 @@ conversationRoutes.all("/:id/:action?", async (c) => {
     }
     if (action === "confirm") {
       const { revision } = revisionSchema.parse(body);
+      const alreadySaved = state.phase === "saved";
       await commit(revision, "form");
+      if (!alreadySaved)
+        state.messages = (
+          [
+            ...state.messages,
+            {
+              role: "assistant",
+              text: state.reply,
+              channel: "form",
+              at: new Date().toISOString(),
+            },
+          ] satisfies Conversation["messages"]
+        ).slice(-60);
       return persist();
     }
     if (action === "turn") {
@@ -307,7 +318,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         return c.json(receipts[candidate.requestId]);
     }
     if (state.phase === "saved") {
-      if (action !== "turn" || state.approvalMode !== "autonomous")
+      if (action !== "turn")
         throw new ConversationError(
           "Start a new entry; this transaction is already saved.",
           409,
@@ -350,7 +361,9 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       state.reply =
         state.phase === "review"
           ? reviewText(state)
-          : "Complete the details before saving.";
+          : state.language === "hi"
+            ? "जानकारी पूरी कर दें, फिर सेव करें।"
+            : "Complete the details before saving.";
       if (
         submit &&
         state.phase === "review" &&
@@ -383,7 +396,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       state = {
         ...state,
         revision: state.revision + 1,
-        phase: "collecting",
+        phase: "processing",
         reviewedRevision: null,
         voiceReviewedRevision: null,
         reply: "Understanding your entry…",
@@ -448,7 +461,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       const latest = conversationSchema.parse(row.state);
       if (
         latest.revision !== reserved.revision ||
-        latest.phase !== "collecting"
+        latest.phase !== "processing"
       )
         throw new ConversationError(
           "The draft changed while understanding your entry. Review the latest version.",
@@ -525,13 +538,29 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       if (!row) return;
       const latest = conversationSchema.parse(row.state);
       if (latest.revision !== reserved.revision) return;
+      const message =
+        latest.language === "hi"
+          ? "यह बात पूरी नहीं हो पाई। फिर से बोलें या लिखकर बताएँ।"
+          : "That didn’t work. Please say it again or type it.";
       await tx
         .update(conversations)
         .set({
           state: {
             ...latest,
-            reply:
-              "I could not finish understanding that entry. Your draft is unchanged; please try again or use the form.",
+            revision: latest.revision + 1,
+            phase: "collecting",
+            reply: message,
+            messages: (
+              [
+                ...latest.messages,
+                {
+                  role: "assistant",
+                  text: message,
+                  channel: turn.channel,
+                  at: new Date().toISOString(),
+                },
+              ] satisfies Conversation["messages"]
+            ).slice(-60),
           },
         })
         .where(eq(conversations.id, id));

@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import type { ReactNode } from "react";
 
 export const buttonClass =
@@ -23,25 +24,28 @@ export function EmptyState({
   detail: string;
   action?: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex min-h-40 flex-col items-center justify-center gap-3 px-6 py-8 text-center">
       <span className="text-muted" aria-hidden="true">
         {icon}
       </span>
-      <h3 className="text-sm">{title}</h3>
-      <p className="max-w-sm text-xs leading-relaxed text-muted">{detail}</p>
+      <h3 className="text-sm">{t(title)}</h3>
+      <p className="max-w-sm text-xs leading-relaxed text-muted">{t(detail)}</p>
       {action}
     </div>
   );
 }
 export function LoadingRows() {
+  const { t } = useI18n();
+
   return (
     <div
       role="status"
-      aria-label="Loading Content"
+      aria-label={t("Loading Content")}
       className="min-h-0 overflow-hidden"
     >
-      <span className="sr-only">Loading…</span>
+      <span className="sr-only">{t("Loading…")}</span>
       {[0, 1, 2].map((i) => (
         <div
           key={i}

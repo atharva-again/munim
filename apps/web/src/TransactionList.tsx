@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -43,6 +44,8 @@ export function TransactionList({
   emptyTitle = "No Transactions Yet",
   emptyDetail = "Record a sale, expense, payment, or transfer to get started.",
 }: TransactionListProps) {
+  const { t } = useI18n();
+
   if (loading) return <LoadingRows />;
   if (!transactions.length)
     return (
@@ -56,33 +59,33 @@ export function TransactionList({
     <div className="min-h-0 overflow-auto overscroll-contain">
       <table className="w-full border-collapse text-left text-xs">
         <caption className="sr-only">
-          Business transactions and settlement status
+          {t("Business transactions and settlement status")}
         </caption>
         <thead className="sticky top-0 z-1 bg-canvas text-[11px] text-muted">
           <tr className="border-y border-line">
             <th scope="col" className="bg-soft px-5 py-3 font-normal">
-              Transaction
+              {t("Transaction")}
             </th>
             <th
               scope="col"
               className="hidden bg-soft px-4 py-3 font-normal sm:table-cell"
             >
-              Type
+              {t("Type")}
             </th>
             <th
               scope="col"
               className="hidden bg-soft px-4 py-3 font-normal md:table-cell"
             >
-              Status
+              {t("Status")}
             </th>
             <th
               scope="col"
               className="bg-soft px-5 py-3 text-right font-normal"
             >
-              Amount
+              {t("Amount")}
             </th>
             <th scope="col" className="w-10 bg-soft pr-4">
-              <span className="sr-only">Payment Action</span>
+              <span className="sr-only">{t("Payment Action")}</span>
             </th>
           </tr>
         </thead>
@@ -123,23 +126,23 @@ export function TransactionList({
                       </p>
                       <p className="mt-1.5 truncate text-[11px] text-muted">
                         {transaction.counterparty ||
-                          transactionKindLabels[transaction.kind]}{" "}
+                          t(transactionKindLabels[transaction.kind])}{" "}
                         · {formatDate(transaction.occurredAt)}
                       </p>
                       <span className="mt-1 inline-flex items-center gap-1.5 text-[10px] text-muted md:hidden">
                         <StatusDot tone={status.tone} />
-                        {status.label}
+                        {t(status.label)}
                       </span>
                     </div>
                   </div>
                 </td>
                 <td className="hidden whitespace-nowrap px-4 py-4 text-muted sm:table-cell">
-                  {transactionKindLabels[transaction.kind]}
+                  {t(transactionKindLabels[transaction.kind])}
                 </td>
                 <td className="hidden whitespace-nowrap px-4 py-4 md:table-cell">
                   <span className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-[10px]">
                     <StatusDot tone={status.tone} />
-                    {status.label}
+                    {t(status.label)}
                   </span>
                 </td>
                 <td className="px-5 py-4 text-right text-[13px] whitespace-nowrap tabular-nums">
@@ -153,7 +156,9 @@ export function TransactionList({
                       href={transaction.paymentLink.shortUrl}
                       target="_blank"
                       rel="noreferrer"
-                      aria-label={`Open Payment Link for ${transaction.description}`}
+                      aria-label={t("Open Payment Link for {description}", {
+                        description: transaction.description,
+                      })}
                     >
                       <ExternalLink size={14} />
                     </a>
@@ -164,10 +169,12 @@ export function TransactionList({
                       disabled={!paymentEnabled || busy}
                       title={
                         paymentEnabled
-                          ? "Create Test Payment Link"
-                          : "Payment Links Unavailable"
+                          ? t("Create Test Payment Link")
+                          : t("Payment Links Unavailable")
                       }
-                      aria-label={`Request Payment for ${transaction.description}`}
+                      aria-label={t("Request Payment for {description}", {
+                        description: transaction.description,
+                      })}
                       onClick={() => onPaymentLink(transaction)}
                     >
                       {busy ? (

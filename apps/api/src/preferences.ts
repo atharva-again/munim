@@ -28,7 +28,11 @@ export async function readPreferences(
     .from(userPreferences)
     .where(eq(userPreferences.businessId, businessId));
   const [row] = await (lock ? query.for("share") : query);
-  return preferencesSchema.parse(row ?? { language: null, approvalMode: null });
+  return preferencesSchema.parse(
+    row
+      ? { ...row, language: row.language === "hinglish" ? "hi" : row.language }
+      : { language: null, approvalMode: null },
+  );
 }
 preferenceRoutes.get("/", async (c) => {
   const db = getDatabase();

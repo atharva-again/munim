@@ -1,8 +1,8 @@
+import { useI18n } from "./i18n";
 import type { PreferredLanguage } from "@munim/contracts";
 const choices = [
   { value: "hi", label: "हिन्दी", description: "Hindi" },
   { value: "en", label: "English", description: "English" },
-  { value: "hinglish", label: "Hinglish", description: "Hindi + English" },
 ] satisfies { value: PreferredLanguage; label: string; description: string }[];
 export function LanguagePicker({
   value,
@@ -13,12 +13,14 @@ export function LanguagePicker({
   onChange: (language: PreferredLanguage) => void;
   disabled: boolean;
 }) {
+  const { t } = useI18n();
+
   return (
     <fieldset
       disabled={disabled}
-      className="grid gap-3 disabled:opacity-100 sm:grid-cols-3"
+      className="grid gap-3 disabled:opacity-100 sm:grid-cols-2"
     >
-      <legend className="sr-only">Preferred Language</legend>
+      <legend className="sr-only">{t("Preferred Language")}</legend>
       {choices.map((choice) => (
         <label
           key={choice.value}
@@ -34,9 +36,11 @@ export function LanguagePicker({
           />
           <span>
             <span className="block text-sm">{choice.label}</span>
-            <span className="mt-2 block text-[11px] text-muted">
-              {choice.description}
-            </span>
+            {t(choice.description) !== choice.label && (
+              <span className="mt-2 block text-[11px] text-muted">
+                {t(choice.description)}
+              </span>
+            )}
           </span>
         </label>
       ))}

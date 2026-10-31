@@ -26,7 +26,7 @@ try {
     `CREATE INDEX IF NOT EXISTS munim_conversations_expires_idx ON munim_conversations(expires_at)`,
   );
   await pool.query(`CREATE TABLE IF NOT EXISTS munim_preferences (
-    business_id text PRIMARY KEY, language text NOT NULL CHECK (language IN ('en', 'hi', 'hinglish')),
+    business_id text PRIMARY KEY, language text NOT NULL CHECK (language IN ('en', 'hi')),
     updated_at timestamptz NOT NULL DEFAULT now()
   )`);
   await pool.query(
@@ -35,6 +35,25 @@ try {
   await pool.query(
     `ALTER TABLE IF EXISTS munim_transactions ADD COLUMN IF NOT EXISTS approval_mode text NOT NULL DEFAULT 'approval' CHECK (approval_mode IN ('approval', 'autonomous'))`,
   );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "UPDATE munim_preferences SET language='hi' WHERE language='hinglish'",
+    );
+    await client.query(
+      "ALTER TABLE munim_preferences DROP CONSTRAINT IF EXISTS munim_preferences_language_check",
+    );
+    await client.query(
+      "ALTER TABLE munim_preferences ADD CONSTRAINT munim_preferences_language_check CHECK (language IN ('en', 'hi'))",
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
   console.info("Auth, conversation and preference tables are ready.");
 } finally {
   await pool.end();

@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import { useDeferredValue, useState } from "react";
 import {
   ArrowDownLeft,
@@ -19,6 +20,8 @@ const filters: { value: Filter; label: string }[] = [
 ];
 const pageSize = 20;
 export default function TransactionsView(props: TransactionListProps) {
+  const { t } = useI18n();
+
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(0);
@@ -50,15 +53,15 @@ export default function TransactionsView(props: TransactionListProps) {
   return (
     <section className="flex min-h-[560px] flex-1 flex-col gap-6 md:min-h-0">
       <header>
-        <h1 className="sr-only">Transactions</h1>
+        <h1 className="sr-only">{t("Transactions")}</h1>
         <p className="text-xs leading-relaxed text-muted">
-          Review your ledger and follow up on open payments.
+          {t("Review your ledger and follow up on open payments.")}
         </p>
       </header>
       <div className="grid grid-cols-3 gap-3">
         <div className={`${panelClass} px-3 py-4 sm:px-5`}>
           <p className="min-h-8 text-[10px] text-muted sm:min-h-0 sm:text-xs">
-            Matching Entries
+            {t("Matching Entries")}
           </p>
           <p className="mt-3 text-xl tracking-tight tabular-nums sm:text-2xl">
             {props.loading ? "—" : matches.length}
@@ -67,7 +70,7 @@ export default function TransactionsView(props: TransactionListProps) {
         <div className={`${panelClass} px-3 py-4 sm:px-5`}>
           <p className="flex min-h-8 items-start gap-1.5 text-[10px] text-muted sm:min-h-0 sm:items-center sm:text-xs">
             <ArrowDownLeft size={14} className="text-status-green" />
-            Incoming
+            {t("Incoming")}
           </p>
           <p className="mt-3 text-xl tracking-tight tabular-nums sm:text-2xl">
             {props.loading ? "—" : formatRupees(incoming)}
@@ -76,7 +79,7 @@ export default function TransactionsView(props: TransactionListProps) {
         <div className={`${panelClass} px-3 py-4 sm:px-5`}>
           <p className="flex min-h-8 items-start gap-1.5 text-[10px] text-muted sm:min-h-0 sm:items-center sm:text-xs">
             <ArrowUpRight size={14} className="text-status-red" />
-            Outgoing
+            {t("Outgoing")}
           </p>
           <p className="mt-3 text-xl tracking-tight tabular-nums sm:text-2xl">
             {props.loading ? "—" : formatRupees(outgoing)}
@@ -90,7 +93,7 @@ export default function TransactionsView(props: TransactionListProps) {
           <div
             className="flex gap-1"
             role="group"
-            aria-label="Filter by Settlement Status"
+            aria-label={t("Filter by Settlement Status")}
           >
             {filters.map((item) => (
               <button
@@ -103,7 +106,7 @@ export default function TransactionsView(props: TransactionListProps) {
                 }}
                 className={`rounded-md px-3 py-2 text-xs ${filter === item.value ? "bg-soft text-fg" : "text-muted hover:text-fg"}`}
               >
-                {item.label}
+                {t(item.label)}
               </button>
             ))}
           </div>
@@ -114,9 +117,9 @@ export default function TransactionsView(props: TransactionListProps) {
               className="pointer-events-none absolute top-3 left-3 text-muted"
             />
             <input
-              aria-label="Search Transactions"
+              aria-label={t("Search Transactions")}
               className={`${inputClass} pr-9 pl-9 text-xs`}
-              placeholder="Search transactions…"
+              placeholder={t("Search transactions…")}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -126,7 +129,7 @@ export default function TransactionsView(props: TransactionListProps) {
             {query && (
               <button
                 type="button"
-                aria-label="Clear Search"
+                aria-label={t("Clear Search")}
                 className={`${iconButtonClass} absolute top-1 right-1`}
                 onClick={() => {
                   setQuery("");
@@ -147,12 +150,12 @@ export default function TransactionsView(props: TransactionListProps) {
             transactions={visible}
             emptyTitle={
               query || filter !== "all"
-                ? "No Matching Transactions"
+                ? t("No Matching Transactions")
                 : props.emptyTitle
             }
             emptyDetail={
               query || filter !== "all"
-                ? "Try another search or settlement status."
+                ? t("Try another search or settlement status.")
                 : props.emptyDetail
             }
           />
@@ -160,18 +163,23 @@ export default function TransactionsView(props: TransactionListProps) {
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-5 py-3 text-[11px] text-muted">
           <span aria-live="polite">
             {matches.length
-              ? `${currentPage * pageSize + 1}–${Math.min((currentPage + 1) * pageSize, matches.length)} of ${matches.length}`
-              : "0 entries"}
+              ? t("{from}–{to} of {total}", {
+                  from: currentPage * pageSize + 1,
+                  to: Math.min((currentPage + 1) * pageSize, matches.length),
+                  total: matches.length,
+                })
+              : t("0 entries")}
             <span className="hidden sm:inline">
               {" "}
-              · Latest {props.transactions.length} loaded
+              ·{" "}
+              {t("Latest {count} loaded", { count: props.transactions.length })}
             </span>
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               className={buttonClass}
-              aria-label="Previous Page"
+              aria-label={t("Previous Page")}
               disabled={currentPage === 0}
               onClick={() => setPage(currentPage - 1)}
             >
@@ -183,7 +191,7 @@ export default function TransactionsView(props: TransactionListProps) {
             <button
               type="button"
               className={buttonClass}
-              aria-label="Next Page"
+              aria-label={t("Next Page")}
               disabled={currentPage >= pageCount - 1}
               onClick={() => setPage(currentPage + 1)}
             >

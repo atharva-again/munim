@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import {
   paymentMethods,
   settlementStatuses,
@@ -17,11 +18,13 @@ export function DraftForm({
   onChange: (draft: TransactionDraft) => void;
   disabled: boolean;
 }) {
+  const { t } = useI18n();
+
   const set = (patch: TransactionDraft) => onChange({ ...draft, ...patch });
   return (
     <fieldset disabled={disabled} className="grid gap-4 disabled:opacity-100">
       <label className={fieldClass}>
-        Transaction Type
+        {t("Transaction Type")}
         <select
           className={inputClass}
           value={draft.kind ?? ""}
@@ -31,17 +34,17 @@ export function DraftForm({
             set({ kind, direction });
           }}
         >
-          <option value="">Select Transaction Type</option>
+          <option value="">{t("Select Transaction Type")}</option>
           {transactionKinds.map((v) => (
             <option key={v} value={v}>
-              {transactionKindLabels[v]}
+              {t(transactionKindLabels[v])}
             </option>
           ))}
         </select>
       </label>
       {draft.kind === "other" && (
         <label className={fieldClass}>
-          Money Movement
+          {t("Money Movement")}
           <select
             className={inputClass}
             value={draft.direction ?? ""}
@@ -53,16 +56,16 @@ export function DraftForm({
               })
             }
           >
-            <option value="">Select Movement</option>
-            <option value="inflow">Money In</option>
-            <option value="outflow">Money Out</option>
-            <option value="transfer">Transfer</option>
+            <option value="">{t("Select Movement")}</option>
+            <option value="inflow">{t("Money In")}</option>
+            <option value="outflow">{t("Money Out")}</option>
+            <option value="transfer">{t("Transfer")}</option>
           </select>
         </label>
       )}
       <div className="grid grid-cols-2 gap-3">
         <label className={fieldClass}>
-          Amount (₹)
+          {t("Amount (₹)")}
           <input
             className={inputClass}
             type="number"
@@ -82,7 +85,7 @@ export function DraftForm({
           />
         </label>
         <label className={fieldClass}>
-          Payment Status
+          {t("Payment Status")}
           <select
             className={inputClass}
             value={draft.settlementStatus ?? ""}
@@ -95,16 +98,16 @@ export function DraftForm({
               })
             }
           >
-            <option value="">Select Status</option>
-            <option value="settled">Fully Paid</option>
-            <option value="open">Still Due</option>
-            <option value="partial">Partly Paid</option>
+            <option value="">{t("Select Status")}</option>
+            <option value="settled">{t("Fully Paid")}</option>
+            <option value="open">{t("Still Due")}</option>
+            <option value="partial">{t("Partly Paid")}</option>
           </select>
         </label>
       </div>
       {draft.settlementStatus === "partial" && (
         <label className={fieldClass}>
-          Amount Paid (₹)
+          {t("Amount Paid (₹)")}
           <input
             className={inputClass}
             type="number"
@@ -127,7 +130,7 @@ export function DraftForm({
         </label>
       )}
       <label className={fieldClass}>
-        What Happened?
+        {t("What Happened?")}
         <input
           className={inputClass}
           maxLength={500}
@@ -138,18 +141,18 @@ export function DraftForm({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className={fieldClass}>
           {draft.settlementStatus && draft.settlementStatus !== "settled"
-            ? "Customer or Supplier (Required)"
-            : "Customer or Supplier"}
+            ? t("Customer or Supplier (Required)")
+            : t("Customer or Supplier")}
           <input
             className={inputClass}
             maxLength={160}
             value={draft.counterparty ?? ""}
             onChange={(e) => set({ counterparty: e.target.value })}
-            placeholder="Name"
+            placeholder={t("Name")}
           />
         </label>
         <label className={fieldClass}>
-          Payment Method
+          {t("Payment Method")}
           <select
             className={inputClass}
             value={draft.paymentMethod ?? ""}
@@ -159,10 +162,12 @@ export function DraftForm({
               })
             }
           >
-            <option value="">Not Specified</option>
+            <option value="">{t("Not Specified")}</option>
             {paymentMethods.map((v) => (
               <option key={v} value={v}>
-                {v === "upi" ? "UPI" : v.charAt(0).toUpperCase() + v.slice(1)}
+                {t(
+                  v === "upi" ? "UPI" : v.charAt(0).toUpperCase() + v.slice(1),
+                )}
               </option>
             ))}
           </select>
@@ -170,7 +175,7 @@ export function DraftForm({
       </div>
       {draft.occurredAt && (
         <label className={fieldClass}>
-          Date and Time
+          {t("Date and Time")}
           <input
             className={inputClass}
             type="datetime-local"
