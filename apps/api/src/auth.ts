@@ -28,16 +28,6 @@ export function getAuth() {
   };
   return (instance ??= betterAuth(options));
 }
-export function accountBusinessId(user: {
-  id: string;
-  email: string;
-  emailVerified: boolean;
-}) {
-  const owner = process.env.MUNIM_OWNER_EMAIL?.toLowerCase();
-  return owner && user.emailVerified && user.email.toLowerCase() === owner
-    ? (process.env.MUNIM_BUSINESS_ID ?? "demo-business")
-    : `account:${user.id}`;
-}
 export type ApiEnv = {
   Variables: { businessId: string; authSessionId: string };
 };

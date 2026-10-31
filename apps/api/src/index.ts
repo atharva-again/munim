@@ -1,16 +1,11 @@
 import { config } from "dotenv";
-import { getAuth, accountBusinessId, type ApiEnv } from "./auth.js";
+import { getAuth, type ApiEnv } from "./auth.js";
 import { conversationRoutes } from "./conversations.js";
-import { insertTransaction } from "./services/ledger.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context } from "hono";
-import {
-  createTransactionSchema,
-  validateDraft,
-  ledgerSummarySchema,
-} from "@munim/contracts";
+import { ledgerSummarySchema } from "@munim/contracts";
 import { businessId, getDatabase, getPool } from "./db/index.js";
 import {
   isMekoConfigured,
@@ -46,7 +41,7 @@ app.use("/api/*", async (c, next) => {
   if (!auth) return c.json({ error: "Google sign-in is not configured." }, 503);
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return c.json({ error: "Sign in to continue." }, 401);
-  c.set("businessId", accountBusinessId(session.user));
+  c.set("businessId", `account:${session.user.id}`);
   c.set("authSessionId", session.session.id);
   if (!["GET", "HEAD"].includes(c.req.method)) {
     const origin = c.req.header("Origin");
@@ -203,52 +198,6 @@ app.get("/api/transactions", async (c) => {
     console.error("[transactions-read]", error);
     return c.json(
       { error: "Could not read transactions. Run the database setup first." },
-      503,
-    );
-  }
-});
-
-app.post("/api/transactions", async (c) => {
-  const db = getDatabase();
-  if (!db) return unavailable(c, "Connect YugabyteDB by setting DATABASE_URL.");
-
-  const body = await c.req.json().catch(() => null);
-  const parsed = createTransactionSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json(
-      { error: "Check the transaction details.", details: parsed.error.issues },
-      400,
-    );
-  }
-
-  const input = parsed.data;
-  if (!validateDraft(input))
-    return c.json(
-      { error: "Check the direction, counterparty and paid amount." },
-      400,
-    );
-  try {
-    const created = await db.transaction((tx) =>
-      insertTransaction(tx, input, c.get("businessId"), "manual"),
-    );
-
-    return c.json(
-      {
-        ...created,
-        amountPaise: Number(created.amountPaise),
-        occurredAt: created.occurredAt.toISOString(),
-        createdAt: created.createdAt.toISOString(),
-        paymentLink: null,
-      },
-      201,
-    );
-  } catch (error) {
-    console.error("[transaction-create]", error);
-    return c.json(
-      {
-        error:
-          "The transaction was not saved. Check the ledger connection and try again.",
-      },
       503,
     );
   }

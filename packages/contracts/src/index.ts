@@ -27,7 +27,7 @@ export const createTransactionSchema = z.object({
   description: z.string().trim().min(1).max(500),
   counterparty: z.string().trim().max(160).optional().default(""),
   paymentMethod: paymentMethodSchema.optional(),
-  settlementStatus: settlementStatusSchema.default("settled"),
+  settlementStatus: settlementStatusSchema,
   occurredAt: z.string().datetime().optional(),
   settledAmountPaise: z
     .number()
@@ -122,7 +122,7 @@ export const voiceTokenSchema = z.object({
 
 export function validateDraft(draft: TransactionDraft) {
   const parsed = createTransactionSchema.safeParse(draft);
-  if (!parsed.success || !draft.settlementStatus) return null;
+  if (!parsed.success) return null;
   const input = parsed.data;
   const direction =
     input.kind === "transfer"

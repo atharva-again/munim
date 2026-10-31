@@ -57,7 +57,7 @@
 ## Authentication and Voice
 
 - Use Better Auth with Google sign-in only across the app. Do not add password login or a development auth bypass.
-- Scope every ledger query and conversation to its authenticated account. Only the verified `MUNIM_OWNER_EMAIL` may access the existing business ledger and shared integrations. Never infer ownership from the first login.
+- Scope every ledger query and conversation to its authenticated account. Use the immutable Better Auth user ID for ledger ownership. Preserve existing prototype data separately until an explicit migration; never infer its ownership from the first login.
 - Keep LiveKit and provider secrets server-side. Issue short-lived room-scoped tokens; validate conversation capabilities against the original active auth session.
 - The model may propose or correct a draft and search business context. It cannot directly write the ledger, verify payment, or claim a save succeeded.
 - Confirm the exact reviewed revision. Interrupted or failed audio does not complete a spoken review. Invalidate review on every edit; commit a transaction and its settlement atomically and idempotently.
