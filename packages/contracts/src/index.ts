@@ -142,7 +142,24 @@ export const voiceCaptionSchema = z.object({
   id: z.string().uuid(),
   role: z.enum(["user", "assistant"]),
   text: z.string().max(4000),
+  final: z.boolean().default(true),
+  turnId: z.string().uuid().optional(),
 });
+export const memoryFactSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().max(2000),
+  source: z.enum(["memory", "knowledge_base", "conversation"]),
+  editable: z.boolean(),
+});
+export const memoryContextSchema = z.object({
+  status: z.enum(["ready", "unavailable", "not_configured", "disabled"]),
+  facts: z.array(memoryFactSchema).max(5),
+  usedIds: z.array(z.string()).max(5),
+  retrieval: z.enum(["semantic", "recent", "cached"]).optional(),
+  retrievedAt: z.string().datetime().optional(),
+});
+export type MemoryFact = z.infer<typeof memoryFactSchema>;
+export type MemoryContext = z.infer<typeof memoryContextSchema>;
 export const conversationSchema = z
   .object({
     language: storedLanguageSchema.default("en"),
@@ -155,9 +172,17 @@ export const conversationSchema = z
     phase: z.enum(["collecting", "processing", "review", "saved"]),
     messages: z.array(conversationMessageSchema),
     reply: z.string(),
+    replyIsReview: z.boolean().default(false),
+    processingSince: z.string().datetime().optional(),
+    resumePhase: z.enum(["collecting", "review"]).optional(),
     reviewedRevision: z.number().int().nullable(),
     voiceReviewedRevision: z.number().int().nullable().default(null),
     transactionId: z.string().uuid().nullable(),
+    memory: memoryContextSchema.default({
+      status: "not_configured",
+      facts: [],
+      usedIds: [],
+    }),
   })
   .transform((state) => ({
     ...state,
@@ -170,11 +195,6 @@ export const turnSchema = z.object({
   revision: z.number().int().nonnegative(),
   text: z.string().trim().min(1).max(2000),
   channel: z.enum(["text", "voice"]),
-});
-export const formDraftSchema = z.object({
-  revision: z.number().int(),
-  draft: draftSchema,
-  submit: z.boolean().default(false),
 });
 export const revisionSchema = z.object({
   revision: z.number().int().nonnegative(),

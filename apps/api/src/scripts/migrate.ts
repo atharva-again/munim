@@ -25,6 +25,9 @@ try {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS munim_conversations_expires_idx ON munim_conversations(expires_at)`,
   );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS munim_conversations_account_expires_idx ON munim_conversations(business_id,expires_at)`,
+  );
   await pool.query(`CREATE TABLE IF NOT EXISTS munim_preferences (
     business_id text PRIMARY KEY, language text NOT NULL CHECK (language IN ('en', 'hi')),
     updated_at timestamptz NOT NULL DEFAULT now()
@@ -35,6 +38,32 @@ try {
   await pool.query(
     `ALTER TABLE IF EXISTS munim_transactions ADD COLUMN IF NOT EXISTS approval_mode text NOT NULL DEFAULT 'approval' CHECK (approval_mode IN ('approval', 'autonomous'))`,
   );
+  await pool.query(`CREATE TABLE IF NOT EXISTS munim_memory_scopes (
+    business_id text PRIMARY KEY, name text NOT NULL UNIQUE, datapack_id text,
+    status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','ready','failed')),
+    attempts integer NOT NULL DEFAULT 0, lease_token text, lease_until timestamptz,
+    retry_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  await pool.query(
+    `ALTER TABLE munim_memory_scopes ADD COLUMN IF NOT EXISTS provider_conversation_id text`,
+  );
+  await pool.query(`CREATE TABLE IF NOT EXISTS munim_memory_captures (
+    request_id uuid PRIMARY KEY, business_id text NOT NULL, conversation_id uuid NOT NULL,
+    revision integer NOT NULL, input text NOT NULL, output text NOT NULL,
+    status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','done','failed')),
+    attempts integer NOT NULL DEFAULT 0, lease_token text, lease_until timestamptz,
+    retry_at timestamptz NOT NULL DEFAULT now(), UNIQUE(conversation_id,revision)
+  )`);
+  await pool.query(
+    `ALTER TABLE munim_memory_captures ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS munim_memory_captures_retry_idx ON munim_memory_captures(status,retry_at)`,
+  );
+  await pool.query(`CREATE TABLE IF NOT EXISTS munim_memory_items (
+    business_id text NOT NULL, memory_id text NOT NULL, text text NOT NULL,
+    source text NOT NULL, editable text NOT NULL DEFAULT 'no', UNIQUE(business_id,memory_id)
+  )`);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

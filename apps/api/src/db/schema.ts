@@ -1,6 +1,7 @@
 import {
   bigint,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -153,3 +154,60 @@ export const userPreferences = pgTable("munim_preferences", {
     .notNull()
     .defaultNow(),
 });
+
+export const memoryScopes = pgTable("munim_memory_scopes", {
+  businessId: text("business_id").primaryKey(),
+  name: text("name").notNull().unique(),
+  datapackId: text("datapack_id"),
+  providerConversationId: text("provider_conversation_id"),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  leaseToken: text("lease_token"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true, mode: "date" }),
+  retryAt: timestamp("retry_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+});
+export const memoryCaptures = pgTable(
+  "munim_memory_captures",
+  {
+    requestId: uuid("request_id").primaryKey(),
+    businessId: text("business_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
+    revision: integer("revision").notNull(),
+    input: text("input").notNull(),
+    output: text("output").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    leaseToken: text("lease_token"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true, mode: "date" }),
+    retryAt: timestamp("retry_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("munim_memory_captures_turn_idx").on(
+      table.conversationId,
+      table.revision,
+    ),
+  ],
+);
+export const memoryItems = pgTable(
+  "munim_memory_items",
+  {
+    businessId: text("business_id").notNull(),
+    memoryId: text("memory_id").notNull(),
+    text: text("text").notNull(),
+    source: text("source").notNull(),
+    editable: text("editable").notNull().default("no"),
+  },
+  (table) => [
+    uniqueIndex("munim_memory_items_owner_idx").on(
+      table.businessId,
+      table.memoryId,
+    ),
+  ],
+);

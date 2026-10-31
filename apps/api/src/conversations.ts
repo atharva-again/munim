@@ -12,12 +12,16 @@ import { AccessToken, AgentDispatchClient } from "livekit-server-sdk";
 import {
   conversationSchema,
   greetingFor,
-  formDraftSchema,
   revisionSchema,
   turnSchema,
   validateDraft,
   type Conversation,
 } from "@munim/contracts";
+import {
+  enqueueFinanceCapture,
+  ensureShopMemoryScope,
+} from "./services/shop-memory.js";
+import { recordTiming } from "./services/metrics.js";
 import { readPreferences } from "./preferences.js";
 import type { ApiEnv } from "./auth.js";
 import { getDatabase } from "./db/index.js";
@@ -64,6 +68,7 @@ async function saveDraft(
   return {
     ...state,
     phase: "saved",
+    replyIsReview: false,
     transactionId: state.entryId,
     reply: savedText(state),
   };
@@ -128,9 +133,11 @@ conversationRoutes.post("/", async (c) => {
     phase: "collecting",
     messages: [],
     reply: greetingFor(language),
+    replyIsReview: false,
     reviewedRevision: null,
     voiceReviewedRevision: null,
     transactionId: null,
+    memory: { status: "not_configured", facts: [], usedIds: [] },
   };
   await db.delete(conversations).where(lt(conversations.expiresAt, new Date()));
   await db.insert(conversations).values({
@@ -141,6 +148,7 @@ conversationRoutes.post("/", async (c) => {
     state,
     expiresAt: new Date(Date.now() + 12 * 60 * 60_000),
   });
+  void ensureShopMemoryScope(c.get("businessId")).catch(() => {});
   return c.json(
     {
       conversation: state,
@@ -163,12 +171,13 @@ conversationRoutes.all("/:id/:action?", async (c) => {
   if (!db) throw new ConversationError("Connect the ledger first.", 503);
   const id = z.string().uuid().parse(c.req.param("id"));
   const bearer = c.req.header("Authorization")?.replace(/^Bearer /, "") ?? "";
+  const started = performance.now();
   const operation = await db.transaction(async (tx) => {
     const query = tx
       .select()
       .from(conversations)
       .where(eq(conversations.id, id));
-    const [row] = await (c.req.method === "GET" ? query : query.for("update"));
+    const [row] = await query.for("update");
     if (!row) throw new ConversationError("Conversation not found.", 404);
     const actual = hash(bearer),
       expected = Buffer.from(row.tokenHash, "hex");
@@ -190,6 +199,26 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         410,
       );
     let state = conversationSchema.parse(row.state);
+    if (
+      state.phase === "processing" &&
+      (!state.processingSince ||
+        Date.parse(state.processingSince) < Date.now() - 30_000)
+    ) {
+      state = {
+        ...state,
+        phase: state.resumePhase ?? "collecting",
+        revision: state.revision + 1,
+        processingSince: undefined,
+        resumePhase: undefined,
+        reviewedRevision: null,
+        voiceReviewedRevision: null,
+        replyIsReview: false,
+      };
+      await tx
+        .update(conversations)
+        .set({ state })
+        .where(eq(conversations.id, id));
+    }
     const preferences = await readPreferences(
       tx,
       row.businessId,
@@ -218,6 +247,20 @@ conversationRoutes.all("/:id/:action?", async (c) => {
     if (c.req.method !== "POST")
       return c.json({ error: "Method not allowed." }, 405);
     const body: unknown = await c.req.json();
+    if (action === "telemetry") {
+      const data = z
+        .object({
+          stage: z.literal("client_audio_gap"),
+          durationMs: z.number().min(0).max(120000),
+          turnId: z.string().uuid().optional(),
+        })
+        .parse(body);
+      recordTiming(data.stage, data.durationMs, {
+        conversationId: id,
+        turnId: data.turnId,
+      });
+      return c.json({ ok: true });
+    }
     let receipts = receiptsSchema.parse(row.receipts);
     const persist = async () => {
       await tx
@@ -261,6 +304,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       if (state.phase === "review") {
         state.replyLanguage = state.language;
         state.reply = reviewText(state);
+        state.replyIsReview = true;
       }
       await tx
         .update(conversations)
@@ -297,7 +341,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
     if (action === "confirm") {
       const { revision } = revisionSchema.parse(body);
       const alreadySaved = state.phase === "saved";
-      await commit(revision, "form");
+      await commit(revision, "text");
       if (!alreadySaved)
         state.messages = (
           [
@@ -305,11 +349,20 @@ conversationRoutes.all("/:id/:action?", async (c) => {
             {
               role: "assistant",
               text: state.reply,
-              channel: "form",
+              channel: "text",
               at: new Date().toISOString(),
             },
           ] satisfies Conversation["messages"]
         ).slice(-60);
+      if (!alreadySaved)
+        await enqueueFinanceCapture(tx, {
+          businessId: row.businessId,
+          conversationId: id,
+          revision: state.revision,
+          input: "Confirmed the financial entry on screen.",
+          output: state.reply,
+          requestId: state.entryId,
+        });
       return persist();
     }
     if (action === "turn") {
@@ -317,6 +370,12 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       if (receipts[candidate.requestId])
         return c.json(receipts[candidate.requestId]);
     }
+    const previous = state;
+    if (state.phase === "processing")
+      throw new ConversationError(
+        "This entry is still being understood. Wait a moment.",
+        409,
+      );
     if (state.phase === "saved") {
       if (action !== "turn")
         throw new ConversationError(
@@ -338,39 +397,6 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         reviewedRevision: null,
         voiceReviewedRevision: null,
       };
-    }
-    if (action === "form") {
-      const { revision, draft, submit } = formDraftSchema.parse(body);
-      if (revision !== state.revision)
-        throw new ConversationError(
-          "The draft changed. Reopen the form to edit the latest version.",
-          409,
-        );
-      state = {
-        ...state,
-        draft,
-        replyLanguage: state.language,
-        revision: revision + 1,
-        reviewedRevision: null,
-        voiceReviewedRevision: null,
-        phase:
-          validateDraft(draft) && (submit || state.approvalMode === "approval")
-            ? "review"
-            : "collecting",
-      };
-      state.reply =
-        state.phase === "review"
-          ? reviewText(state)
-          : state.language === "hi"
-            ? "जानकारी पूरी कर दें, फिर सेव करें।"
-            : "Complete the details before saving.";
-      if (
-        submit &&
-        state.phase === "review" &&
-        state.approvalMode === "autonomous"
-      )
-        state = await saveDraft(tx, state, row.businessId, "form");
-      return persist();
     }
     if (action !== "turn")
       throw new ConversationError("Unknown conversation action.", 404);
@@ -397,20 +423,11 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         ...state,
         revision: state.revision + 1,
         phase: "processing",
+        processingSince: new Date().toISOString(),
+        resumePhase: state.phase === "review" ? "review" : "collecting",
         reviewedRevision: null,
         voiceReviewedRevision: null,
-        reply: "Understanding your entry…",
-        messages: (
-          [
-            ...state.messages,
-            {
-              role: "user",
-              text: turn.text,
-              channel: turn.channel,
-              at: new Date().toISOString(),
-            },
-          ] satisfies Conversation["messages"]
-        ).slice(-60),
+        reply: state.reply,
       };
       await persist();
       return {
@@ -418,6 +435,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         state,
         turn,
         businessId: row.businessId,
+        previous,
       };
     }
     state.messages = (
@@ -437,6 +455,14 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         },
       ] satisfies Conversation["messages"]
     ).slice(-60);
+    await enqueueFinanceCapture(tx, {
+      businessId: row.businessId,
+      conversationId: id,
+      revision: state.revision,
+      input: turn.text,
+      output: state.reply,
+      requestId: turn.requestId,
+    });
     receipts = Object.fromEntries([
       ...Object.entries(receipts).slice(-31),
       [turn.requestId, state],
@@ -446,7 +472,12 @@ conversationRoutes.all("/:id/:action?", async (c) => {
   if (operation instanceof Response) return operation;
   const { state: reserved, turn } = operation;
   try {
-    const result = await interpret(reserved, turn.text, operation.businessId);
+    const result = await interpret(
+      reserved,
+      turn.text,
+      operation.businessId,
+      turn.requestId,
+    );
     return await db.transaction(async (tx) => {
       const [row] = await tx
         .select()
@@ -481,43 +512,67 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         true,
       );
       let state: Conversation = {
-        ...latest,
+        ...(result.kind === "reply" ? operation.previous : latest),
+        memory: result.memory,
         language: currentPreferences.language ?? latest.language,
         approvalMode: currentPreferences.approvalMode ?? "approval",
         replyLanguage: result.language,
-        draft: result.kind === "proposal" ? result.draft : latest.draft,
+        draft:
+          result.kind === "proposal" ? result.draft : operation.previous.draft,
         revision: latest.revision + 1,
         phase:
           result.kind === "proposal" &&
           !result.question &&
           validateDraft(result.draft)
             ? "review"
-            : "collecting",
+            : result.kind === "reply"
+              ? operation.previous.phase
+              : "collecting",
       };
       state.reply =
         result.kind === "reply"
-          ? result.message
+          ? operation.previous.reply
           : state.phase === "review"
             ? reviewText(state, result.language)
             : result.question ||
               clarificationText(state.draft, result.language);
+      state.replyIsReview = state.phase === "review";
+      state.processingSince = undefined;
+      state.resumePhase = undefined;
       if (
+        result.kind === "proposal" &&
         state.phase === "review" &&
         state.approvalMode === "autonomous" &&
         reserved.approvalMode === "autonomous"
       )
         state = await saveDraft(tx, state, row.businessId, turn.channel);
-      state.messages = (
-        [
-          ...state.messages,
-          {
-            role: "assistant",
-            text: state.reply,
-            channel: turn.channel,
-            at: new Date().toISOString(),
-          },
-        ] satisfies Conversation["messages"]
-      ).slice(-60);
+      if (result.financeRelated)
+        state.messages = (
+          [
+            ...state.messages,
+            {
+              role: "user",
+              text: turn.text,
+              channel: turn.channel,
+              at: new Date().toISOString(),
+            },
+            {
+              role: "assistant",
+              text: result.kind === "reply" ? result.message : state.reply,
+              channel: turn.channel,
+              at: new Date().toISOString(),
+            },
+          ] satisfies Conversation["messages"]
+        ).slice(-60);
+      if (result.financeRelated)
+        await enqueueFinanceCapture(tx, {
+          businessId: row.businessId,
+          conversationId: id,
+          revision: state.revision,
+          input: turn.text,
+          output: result.kind === "reply" ? result.message : state.reply,
+          requestId: turn.requestId,
+        });
       const receipts = Object.fromEntries([
         ...Object.entries(receiptsSchema.parse(row.receipts)).slice(-31),
         [turn.requestId, state],
@@ -526,7 +581,15 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         .update(conversations)
         .set({ state, receipts })
         .where(eq(conversations.id, id));
-      return c.json(state);
+      recordTiming("turn_total", performance.now() - started, {
+        conversationId: id,
+        turnId: turn.requestId,
+      });
+      return c.json(
+        result.kind === "reply"
+          ? { ...state, reply: result.message, replyIsReview: false }
+          : state,
+      );
     });
   } catch (error) {
     await db.transaction(async (tx) => {
@@ -538,29 +601,14 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       if (!row) return;
       const latest = conversationSchema.parse(row.state);
       if (latest.revision !== reserved.revision) return;
-      const message =
-        latest.language === "hi"
-          ? "यह बात पूरी नहीं हो पाई। फिर से बोलें या लिखकर बताएँ।"
-          : "That didn’t work. Please say it again or type it.";
       await tx
         .update(conversations)
         .set({
           state: {
-            ...latest,
+            ...operation.previous,
             revision: latest.revision + 1,
-            phase: "collecting",
-            reply: message,
-            messages: (
-              [
-                ...latest.messages,
-                {
-                  role: "assistant",
-                  text: message,
-                  channel: turn.channel,
-                  at: new Date().toISOString(),
-                },
-              ] satisfies Conversation["messages"]
-            ).slice(-60),
+            reviewedRevision: null,
+            voiceReviewedRevision: null,
           },
         })
         .where(eq(conversations.id, id));

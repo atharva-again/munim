@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 import { getAuth, type ApiEnv } from "./auth.js";
 import { preferenceRoutes } from "./preferences.js";
+import { memoryRoutes } from "./memory.js";
 import { readInsights } from "./services/insights.js";
 import { conversationRoutes } from "./conversations.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -9,11 +10,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { insightQuerySchema, ledgerSummarySchema } from "@munim/contracts";
 import { businessId, getDatabase, getPool } from "./db/index.js";
-import {
-  isMekoConfigured,
-  MekoConfigurationError,
-  callMekoTool,
-} from "./services/meko.js";
+import { isMekoConfigured } from "./services/meko.js";
 import {
   paymentRequests,
   settlements,
@@ -25,6 +22,16 @@ config({ path: "../../.env" });
 config();
 
 export const app = new Hono<ApiEnv>();
+app.get("/readyz", async (c) => {
+  try {
+    const pool = getPool();
+    if (!pool) return c.json({ ready: false }, 503);
+    await pool.query("select 1");
+    return c.json({ ready: true });
+  } catch {
+    return c.json({ ready: false }, 503);
+  }
+});
 app.get("/api/auth-status", (c) => c.json({ configured: Boolean(getAuth()) }));
 app.on(["GET", "POST"], "/api/auth/*", (c) => {
   const auth = getAuth();
@@ -50,18 +57,11 @@ app.use("/api/*", async (c, next) => {
     if (origin && origin !== new URL(process.env.BETTER_AUTH_URL!).origin)
       return c.json({ error: "Invalid origin." }, 403);
   }
-  if (
-    c.req.path.startsWith("/api/memory/") &&
-    c.get("businessId") !== businessId()
-  )
-    return c.json(
-      { error: "Business memory is not configured for this account." },
-      403,
-    );
   return next();
 });
 app.route("/api/conversations", conversationRoutes);
 app.route("/api/preferences", preferenceRoutes);
+app.route("/api/memory", memoryRoutes);
 
 function razorpayStatus() {
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -92,7 +92,7 @@ app.get("/api/health", async (c) => {
     service: "munim-api",
     database,
     meko:
-      c.get("businessId") === businessId() && isMekoConfigured()
+      isMekoConfigured() && process.env.MUNIM_MEMORY_ENABLED !== "false"
         ? "configured"
         : "not_configured",
     speechToText: process.env.SARVAM_API_KEY
@@ -445,95 +445,6 @@ app.post("/api/webhooks/razorpay", async (c) => {
   } catch (error) {
     console.error("[razorpay-webhook]", error);
     return c.text("Could not process webhook; Razorpay may retry.", 500);
-  }
-});
-
-app.get("/api/memory/status", (c) =>
-  c.json({
-    configured: isMekoConfigured(),
-    datapackConfigured: Boolean(process.env.MEKO_DATAPACK_ID),
-  }),
-);
-
-app.post("/api/memory/search", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const query = typeof body?.query === "string" ? body.query.trim() : "";
-  if (!query) return c.json({ error: "Add a search query." }, 400);
-
-  try {
-    const result = await callMekoTool("context_search", { query, limit: 8 });
-    return c.json({ result });
-  } catch (error) {
-    const message =
-      error instanceof MekoConfigurationError
-        ? error.message
-        : "Meko could not search business memory.";
-    return c.json(
-      { error: message },
-      error instanceof MekoConfigurationError ? 503 : 502,
-    );
-  }
-});
-
-app.post("/api/memory/add", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const text = typeof body?.text === "string" ? body.text.trim() : "";
-  if (!text || text.length > 2000) {
-    return c.json(
-      { error: "Memory text must be between 1 and 2,000 characters." },
-      400,
-    );
-  }
-
-  try {
-    const result = await callMekoTool("memory_add", {
-      text,
-      metadata: { source: "munim-ui", business_id: c.get("businessId") },
-    });
-    return c.json({ result }, 201);
-  } catch (error) {
-    const message =
-      error instanceof MekoConfigurationError
-        ? error.message
-        : "Meko could not save this business memory.";
-    return c.json(
-      { error: message },
-      error instanceof MekoConfigurationError ? 503 : 502,
-    );
-  }
-});
-
-app.post("/api/memory/promote", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const memoryIds = Array.isArray(body?.memoryIds)
-    ? body.memoryIds.filter(
-        (id: unknown): id is string => typeof id === "string",
-      )
-    : [];
-  if (body?.confirmed !== true || memoryIds.length === 0) {
-    return c.json(
-      {
-        error:
-          "Select memories and explicitly confirm sharing them with the business.",
-      },
-      400,
-    );
-  }
-
-  try {
-    const result = await callMekoTool("memory_promote", {
-      memory_ids: memoryIds,
-    });
-    return c.json({ result });
-  } catch (error) {
-    const message =
-      error instanceof MekoConfigurationError
-        ? error.message
-        : "Meko could not promote the selected memories.";
-    return c.json(
-      { error: message },
-      error instanceof MekoConfigurationError ? 503 : 502,
-    );
   }
 });
 
