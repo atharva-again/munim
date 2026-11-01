@@ -6,7 +6,31 @@
 
 <p align="center">A voice-first financial assistant for Indian shopkeepers.</p>
 
+[Public GitHub repository](https://github.com/atharva-again/munim)
+
+## Problem statement
+
+Shopkeepers need to record sales, purchases, expenses, and credit while serving customers. Manual bookkeeping interrupts that work, and scattered notes make outstanding balances difficult to track. A useful assistant also needs to remember the shop's familiar names and terminology across conversations.
+
+## Our solution
+
 Munim turns spoken or typed conversations into bookkeeping entries. It remembers shop conventions across conversations, keeps the original words intact, and lets shopkeepers choose whether to approve each entry or save complete entries automatically. The app supports English, Hindi, and mixed Hindi-English speech.
+
+YugabyteDB stores the ledger and calculates balances. Meko supplies remembered shop context, with controls to inspect, correct, or forget it.
+
+## Presentation
+
+**Google Slides or PowerPoint link:**
+
+<!-- Add your presentation link here. -->
+
+## Team Rajdhani
+
+| Name | Role |
+| --- | --- |
+| Atharva Verma | Team leader |
+| Mohit Sharma | Team member |
+| Siddharth Puhan | Team member |
 
 ## Features
 
@@ -29,7 +53,8 @@ flowchart LR
     API -->|Recall context| Meko[Meko memory]
     API <-->|Interpret and answer| Groq[Groq]
     API -->|Validate and save| DB[(YugabyteDB ledger)]
-    API -->|Queue eligible exchanges| Meko
+    API -->|Queue eligible exchanges| Queue[(YugabyteDB capture queue)]
+    Queue -->|Background delivery| Meko
     API -->|Text reply| User
     API -->|Voice reply| Speech[Sarvam speech and LiveKit]
     Speech --> User
@@ -38,6 +63,38 @@ flowchart LR
 The API retrieves bounded shop context before interpretation. Groq proposes an action or a read; the backend validates it, applies the account's saving policy, and writes the ledger. Eligible exchanges are sent to Meko in the background. Each account has its own runtime datapack.
 
 See [architecture](docs/architecture.md) for the voice, memory, and approval flows.
+
+## Tech stack
+
+| Layer | Technology | Role in Munim |
+| --- | --- | --- |
+| Web app | React, Vite, React Router, Tailwind CSS v4 | Responsive screens, navigation, and English/Hindi interface |
+| Backend | Node.js, TypeScript, Hono | Conversation orchestration, account-scoped reads, and validated financial writes |
+| Data access | Drizzle ORM, `pg`, Zod | SQL queries, database schema, and shared request/response validation |
+| Database | YugabyteDB YSQL | Financial records, authentication, conversation state, and durable memory jobs |
+| Memory | Meko over MCP | Persistent shop context, recall, and memory management |
+| Voice | LiveKit Agents, Silero VAD, Sarvam | Realtime audio, speech boundaries, transcription, and spoken replies |
+| Reasoning | Groq | Structured replies, transaction proposals, and requests for authorized data reads |
+| Authentication | Better Auth with Google | Sign-in and account ownership |
+| Workspace | pnpm | Shared contracts and builds across the web, API, and voice packages |
+
+## Why YugabyteDB and Meko
+
+### YugabyteDB: financial records and durable state
+
+Bookkeeping needs exact totals and reliable writes. Munim uses YSQL transactions to save each ledger entry and its initial settlement together. SQL calculates money received, money paid, and remaining balances from recorded transactions and settlements.
+
+YugabyteDB also stores authentication records, account preferences, draft revisions, finance conversation history, and the queue for pending Meko updates. The queue survives API restarts and lets memory delivery run outside financial transactions.
+
+The [database schema](apps/api/src/db/schema.ts) defines the records. The [ledger service](apps/api/src/services/ledger.ts) writes entries and settlements, while the [Insights service](apps/api/src/services/insights.ts) calculates payment movement and outstanding balances.
+
+### Meko: shop context across conversations
+
+A ledger records amounts, but a shopkeeper also uses familiar names and shorthand. Meko keeps that context available across conversations so the Agent can interpret later messages with relevant shop knowledge.
+
+Munim retrieves recent facts before reasoning and uses semantic search for explicit memory questions. Eligible finance exchanges go through Meko's conversation extraction; taught conventions use explicit memory additions. Business Memory and Shop Context expose returned facts and support correction or forgetting. Each authenticated account maps to a separate runtime datapack.
+
+The [shop-memory service](apps/api/src/services/shop-memory.ts) handles recall, capture, and account mapping through the [Meko MCP client](apps/api/src/services/meko.ts). The [interpreter](apps/api/src/services/interpreter.ts) supplies retrieved context to Groq. Amounts, payment status, and approval still come from validated current input and the ledger.
 
 ## Run locally
 
