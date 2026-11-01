@@ -2,6 +2,7 @@ import { config } from "dotenv";
 import { getAuth, type ApiEnv } from "./auth.js";
 import { preferenceRoutes } from "./preferences.js";
 import { memoryRoutes } from "./memory.js";
+import { historyRoutes } from "./history.js";
 import { readInsights } from "./services/insights.js";
 import { conversationRoutes } from "./conversations.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -62,6 +63,7 @@ app.use("/api/*", async (c, next) => {
 app.route("/api/conversations", conversationRoutes);
 app.route("/api/preferences", preferenceRoutes);
 app.route("/api/memory", memoryRoutes);
+app.route("/api/conversation-history", historyRoutes);
 
 function razorpayStatus() {
   const keyId = process.env.RAZORPAY_KEY_ID;
