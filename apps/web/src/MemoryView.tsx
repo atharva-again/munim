@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Search, Plus, LoaderCircle } from "lucide-react";
 import type { MemoryContext } from "@munim/contracts";
 import { api } from "./api";
@@ -14,9 +14,39 @@ export default function MemoryView({ configured }: { configured: boolean }) {
     [error, setError] = useState("");
   const [result, setResult] = useState<MemoryContext | null>(null),
     [saved, setSaved] = useState(false);
+  const [recent, setRecent] = useState<MemoryContext | null>(null);
+  const [recentBusy, setRecentBusy] = useState(false);
+  const [recentError, setRecentError] = useState("");
+  const recentRequest = useRef(false);
+  const previousPending = useRef(0);
+  const previousReady = useRef(false);
+  const loadRecent = useCallback(async () => {
+    if (recentRequest.current) return;
+    recentRequest.current = true;
+    setRecentBusy(true);
+    setRecentError("");
+    try {
+      setRecent((await api.recentMemories()).result);
+    } catch (caught) {
+      setRecentError(localizedError(caught instanceof Error ? caught.message : "Could not complete that request."));
+    } finally {
+      recentRequest.current = false;
+      setRecentBusy(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (configured) void loadRecent();
+  }, [configured, loadRecent]);
   const [status, setStatus] = useState<Awaited<
     ReturnType<typeof api.memoryStatus>
   > | null>(null);
+  useEffect(() => {
+    if (status?.status === "ready" &&
+      (!previousReady.current || previousPending.current > 0 && status.pendingCaptures === 0))
+      void loadRecent();
+    previousPending.current = status?.pendingCaptures ?? 0;
+    previousReady.current = status?.status === "ready";
+  }, [status, loadRecent]);
   const refresh = () =>
     api
       .memoryStatus()
@@ -41,6 +71,7 @@ export default function MemoryView({ configured }: { configured: boolean }) {
         await api.addMemory(text.trim());
         setText("");
         setSaved(true);
+        void loadRecent();
       }
       await refresh();
     } catch (caught) {
@@ -56,6 +87,7 @@ export default function MemoryView({ configured }: { configured: boolean }) {
     }
   };
   const connected = status?.status === "ready";
+  const displayedMemory = (mode === "search" ? result : null) ?? recent;
   return (
     <section className="max-w-220 space-y-5">
       <h1 className="sr-only">{t("Business Memory")}</h1>
@@ -169,15 +201,45 @@ export default function MemoryView({ configured }: { configured: boolean }) {
           )}
         </form>
       </div>
-      {result && (
+      {mode === "search" && result && (
+        <button type="button" className={buttonClass} onClick={() => {
+          setResult(null);
+          setText("");
+          void loadRecent();
+        }}>{t("Show Recent Memories")}</button>
+      )}
+      {recentBusy && !recent && (
+        <p role="status" className="flex items-center gap-2 text-xs text-muted">
+          <LoaderCircle size={14} className="motion-safe:animate-spin" />
+          {t("Loading Memories…")}
+        </p>
+      )}
+      {recentError && (
+        <div className="space-y-3 text-xs">
+          <p role="alert" className="text-status-red">{recentError}</p>
+          <button type="button" className={buttonClass} disabled={recentBusy} onClick={() => void loadRecent()}>{t("Try Again")}</button>
+        </div>
+      )}
+      {displayedMemory && (
         <MemoryEvidence
-          key={JSON.stringify(result)}
-          memory={result}
+          key={mode === "search" && result ? JSON.stringify(result) : "recent"}
+          memory={displayedMemory}
+          listing={!(mode === "search" && result)}
+          expanded
           onChanged={() => {
-            setResult(null);
+            if (mode === "search" && result) {
+              void api.searchMemory(text.trim()).then((value) => setResult(value.result)).catch(() => setResult(null));
+            }
+            void loadRecent();
             void refresh();
           }}
         />
+      )}
+      {displayedMemory?.status === "unavailable" && (
+        <button type="button" className={buttonClass} disabled={recentBusy || busy} onClick={() => {
+          if (mode === "search" && result) void submit();
+          else void loadRecent();
+        }}>{t("Try Again")}</button>
       )}
       {status && status.pendingCaptures > 0 && (
         <p className="text-xs text-muted" role="status">

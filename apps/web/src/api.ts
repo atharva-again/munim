@@ -3,11 +3,14 @@ import { currentLanguage } from "./translations";
 import { z } from "zod";
 import {
   insightsSchema,
+  conversationHistorySchema,
+  conversationMessageSchema,
   preferencesSchema,
   savePreferencesSchema,
   type SavedPreferences,
   ledgerSummarySchema,
   memoryContextSchema,
+  memoryFactSchema,
   transactionSchema,
   type InsightQuery,
 } from "@munim/contracts";
@@ -28,6 +31,8 @@ const memoryReceiptSchema = z.object({
   result: z.object({ saved: z.literal(true) }),
 });
 export const api = {
+  conversationHistory: (page:number,signal?:AbortSignal) => request(`/api/conversation-history?page=${page}`,z.object({hasMore:z.boolean(),items:z.array(z.object({id:z.string().uuid(),updatedAt:z.string().datetime(),preview:z.string(),channels:z.array(conversationMessageSchema.shape.channel)}))}),{signal}),
+  pastConversation: (id:string,signal?:AbortSignal) => request(`/api/conversation-history/${encodeURIComponent(id)}`,conversationHistorySchema,{signal}),
   preferences: (signal: AbortSignal) =>
     request("/api/preferences", preferencesSchema, { signal }),
   savePreferences: (preferences: SavedPreferences) =>
@@ -51,6 +56,9 @@ export const api = {
       z.object({ shortUrl: z.string().url(), status: z.string() }),
       { method: "POST" },
     ),
+  recentMemories: (signal?: AbortSignal) => request("/api/memory/recent", z.object({
+    result: memoryContextSchema.extend({ facts: z.array(memoryFactSchema).max(20) }),
+  }), { signal }),
   searchMemory: (query: string) =>
     request("/api/memory/search", memorySearchSchema, {
       method: "POST",

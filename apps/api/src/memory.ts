@@ -8,6 +8,7 @@ import {
   addShopMemory,
   changeShopMemory,
   getMemoryStatus,
+  listShopMemory,
   searchShopMemory,
 } from "./services/shop-memory.js";
 import { MekoConfigurationError } from "./services/meko.js";
@@ -29,6 +30,9 @@ const textSchema = z.object({ text: z.string().trim().min(1).max(2000) });
 const memoryIdSchema = z.string().trim().min(1).max(200);
 memoryRoutes.get("/status", async (c) =>
   c.json(await getMemoryStatus(c.get("businessId"))),
+);
+memoryRoutes.get("/recent", async (c) =>
+  c.json({ result: await listShopMemory(c.get("businessId")) }),
 );
 memoryRoutes.post("/search", async (c) => {
   const parsed = z

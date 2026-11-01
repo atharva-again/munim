@@ -123,7 +123,7 @@ function records(value: unknown): unknown[] {
   }
   return [];
 }
-export function parseMemoryFacts(result: unknown): MemoryFact[] {
+export function parseMemoryFacts(result: unknown, limit = 5): MemoryFact[] {
   const root = object(result);
   const data = objectSchema.safeParse(root.results).success
     ? object(root.results)
@@ -165,7 +165,7 @@ export function parseMemoryFacts(result: unknown): MemoryFact[] {
         !facts.some((existing) => existing.id === fact.data.id)
       )
         facts.push(fact.data);
-      if (facts.length === 5) return facts;
+      if (facts.length === limit) return facts;
     }
   }
   return facts;
@@ -541,6 +541,23 @@ export async function searchShopMemory(
     timeoutMs: 15000,
     retrieval: "semantic",
   });
+}
+export async function listShopMemory(businessId: string): Promise<MemoryContext> {
+  if (!isMekoConfigured()) return empty("not_configured");
+  if (process.env.MUNIM_MEMORY_ENABLED === "false") return empty("disabled");
+  try {
+    const scope = await readyScope(businessId);
+    const result = await callMekoTool("memory_get_all", {
+      conversation_id: scope.providerConversationId,
+      datapack_id: scope.datapackId,
+      agent_id: memoryAgentId,
+    }, AbortSignal.timeout(15000));
+    const facts = parseMemoryFacts({ memory: records(object(result).memories).slice(0, 20) }, 20);
+    await rememberVisibleFacts(businessId, facts);
+    return { status: "ready", facts, usedIds: [], retrieval: "recent", retrievedAt: new Date().toISOString() };
+  } catch {
+    return empty("unavailable");
+  }
 }
 export async function addShopMemory(businessId: string, text: string) {
   const scope = await readyScope(businessId),
