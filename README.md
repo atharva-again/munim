@@ -29,11 +29,10 @@ Web: `http://localhost:5173`. API: `http://localhost:3001`. `pnpm dev:all` start
 | Speech | `SARVAM_API_KEY`; optional model/persona settings in `.env.example` |
 | Interpretation | `GROQ_API_KEY`, optional `MUNIM_LLM_MODEL` |
 | Business memory | `MEKO_API_KEY`, `MEKO_PROVISIONING_DATAPACK_ID` (or existing `MEKO_DATAPACK_ID` as bootstrap only), optional `MEKO_MCP_URL` |
-| Payment links | Razorpay **test-mode** keys and `RAZORPAY_WEBHOOK_SECRET` |
 
 Register `http://localhost:5173/api/auth/callback/google` as Google's development redirect URI. In production use the HTTPS app origin and corresponding callback. Serve `/api` on the same origin as the frontend. No password login, owner-email allowlist, or auth bypass is included.
 
-Secrets stay server-side; never use `VITE_` variables for provider keys or commit `.env`. Each signed-in account owns its ledger and preferences through the immutable Better Auth user ID. Prototype ledger data stays separate. `MUNIM_BUSINESS_ID` still restricts the prototype Razorpay integration; it no longer grants access to another shop's memory.
+Secrets stay server-side; never use `VITE_` variables for provider keys or commit `.env`. Each signed-in account owns its ledger and preferences through the immutable Better Auth user ID. Prototype ledger data stays separate from authenticated account data.
 
 ## Agent Architecture
 
@@ -46,11 +45,15 @@ flowchart TD
     STT --> Turn[Finalized Speech Turn]
     Turn --> API[Authenticated Conversation Controller]
     API --> Recall[Account-Scoped Meko Recall]
-    Recall --> Groq[Strict Groq Tool Decision]
+    Recall --> Groq[Strict Structured Decision]
+    Groq -->|Read Action| Read[Ledger, Dues, History, Preferences, Semantic Recall]
+    Read --> GroqReply[Strict Read Reply]
+    Read --> SQL
+    GroqReply --> Validate
     Groq --> Validate[Validation and Approval Policy]
     Validate --> SQL[(YugabyteDB Ledger and Finance History)]
     Validate --> Queue[(Durable Finance Capture Queue)]
-    Queue --> Capture[Meko Conversation Capture and Extraction]
+    Queue --> Capture[Meko Conversation Extraction or Explicit Convention Add]
     Capture --> Memory[(Separate Runtime Datapack per Account)]
     Memory --> Recall
     Validate --> Reply[Short Natural Reply]
@@ -60,9 +63,11 @@ flowchart TD
 
 LiveKit Agents manages audio lifecycle, speech detection, interruption handling, worker processes, and playback. Munim's Hono backend orchestrates interpretation, recalled context, validation, and financial writes. The worker uses completed speech turns; speculative ledger actions remain disabled.
 
-Code defaults are Sarvam `saaras:v4` STT, Groq `openai/gpt-oss-120b`, and Sarvam `bulbul:v4-flash` TTS. Environment settings can override them. These are integration defaults, not benchmark winners for shop audio. Groq reasoning defaults to `low`; the reasoning budget, completion limit, and timeout are configurable.
+Code defaults are Sarvam `saaras:v4` STT, Groq `openai/gpt-oss-120b`, and Sarvam `bulbul:v4-flash` TTS. Environment settings can override them. These are integration defaults, not benchmark winners for shop audio. Groq reasoning defaults to `low`, and completion output is capped at 1,024 tokens by default.
 
-The model has two strict tools: `propose_transaction` and `reply_to_user`. Memory retrieval happens before the decision, rather than requiring another model turn to request it. Tool schemas require explicit values or null for unknowns; runtime validation remains authoritative. The model cannot write the ledger, verify payment, change settings, or send money.
+Groq returns one strict structured action: reply, transaction proposal, or a bounded data read. The API executes reads locally and makes one additional structured call to phrase a data-backed answer. A call that Groq rejects with `json_validate_failed` is retried once; other provider errors and rate limits are not retried. Memory retrieval happens before the decision. Runtime validation remains authoritative; the model cannot write the ledger, verify payment, change settings, or send money.
+
+A small synthetic comparison of five decisions per mode on 1 November 2026 returned four valid expected decisions and one `json_validate_failed` for strict mode, versus five valid expected decisions in JSON object mode. This was a single sample per case, without the ledger or voice pipeline; it does not establish a winner. Strict mode remains the default pending representative comparisons.
 
 See [the detailed architecture](docs/architecture.md) for ownership, persistence, and recovery boundaries.
 
@@ -72,9 +77,9 @@ Only Voice and Text are available. The circular control connects, cancels a conn
 
 Onboarding has separate Language, Shop Name, and Saving Preference screens with no preselected choices. All three persist per account and remain editable in Settings. The shop name appears in navigation and the overview heading. Existing accounts missing a name complete that step without losing saved language/saving choices. The opening greeting follows the selected language; speaking another language does not overwrite that preference.
 
-The public homepage at `/` explains Munim and includes a clearly labelled interactive example using the real record-summary component. The example is local and never accesses the microphone, calls speech/model providers, or writes records. Start Your Khata opens `/record`, using Google sign-in and onboarding as needed. The homepage is English/Hindi, follows the saved light/dark theme, and does not load authentication or voice code until entering the app.
+The public homepage at `/` explains Munim and includes a clearly labelled interactive example using the real record-summary component. The example is local and never accesses the microphone, calls speech/model providers, or writes records. Start Your Khata opens `/record`, which redirects to focused capture at `/agent?record=1` using Google sign-in and onboarding as needed. The homepage is English/Hindi, follows the saved light/dark theme, and does not load authentication or voice code until entering the app.
 
-App screens have their own routes: `/overview`, `/record`, `/transactions`, `/insights`, `/business-memory`, `/conversations`, and `/settings`. Navigation supports direct links, reloads, and browser Back/Forward. Static production hosting must serve `index.html` for these frontend paths, while routing `/api/*` to the API.
+Agent is the shared voice/text workspace. The prominent Record Transaction shortcut opens a fresh capture in that workspace; `/record` redirects to `/agent?record=1`. App screens have their own routes: `/agent`, `/overview`, `/transactions`, `/insights`, `/business-memory`, `/conversations`, and `/settings`. Navigation supports direct links, reloads, and browser Back/Forward. Static production hosting must serve `index.html` for these frontend paths, while routing `/api/*` to the API.
 
 - **Ask for Approval:** a complete draft waits for exact-revision confirmation. Spoken approval requires successful, uninterrupted playback of the actual financial review. A greeting or ordinary reply cannot mark a review complete. On-screen confirmation is also supported.
 - **Full Autonomy:** complete validated new entries save immediately. Missing material facts get one short question. Changing a setting or reconnecting never saves an existing draft.
@@ -83,17 +88,25 @@ Payment status needs matching evidence in the current utterance when introduced 
 
 Only exchanges classified as finance-related are appended to conversation history and queued for Meko. Greetings such as hello/hi use a fast path and remain transient. Finance questions, shop-convention teaching, current-draft corrections, and confirmations can be retained. This is application intent filtering, not a complete abuse/content guardrail system.
 
-The model receives the current draft and up to eight prior finance messages; active state retains up to 60. Active conversation capabilities expire after 12 hours. A separate account-scoped archive keeps finance messages for read-only access through **Past Conversations** at `/conversations`; existing locally retained histories are imported by migration, but previously deleted histories cannot be recovered. Leaving the recording page ends the session; returning or reloading starts a fresh conversation. Voice stays open until ended or an unrecoverable failure occurs; temporary disconnects trigger bounded reconnection. Leaving voice disconnects microphone and audio.
+The model receives the current draft and at most the latest two finance messages, each bounded to 320 characters; the active draft carries the transaction facts across turns. Active state retains up to 60 messages. Active conversation capabilities expire after 12 hours. A separate account-scoped archive keeps finance messages for read-only access through **Past Conversations** at `/conversations`; existing locally retained histories are imported by migration, but previously deleted histories cannot be recovered. Leaving the recording page ends the session; returning or reloading starts a fresh conversation. Voice stays open until ended or an unrecoverable failure occurs; temporary disconnects trigger bounded reconnection. Leaving voice disconnects microphone and audio.
 
 New records include English and Hindi display copies of descriptions and counterparty names. Descriptions are translated; proper names are transliterated. Changing the app language switches these display copies in record cards, transactions and Insights. Original fields and transcript/spoken messages remain unchanged. Legacy records without display copies fall back to their original fields. Text and archived conversations use familiar left/right bubbles and timestamps; Enter sends and Shift+Enter adds a line.
 
 Raw microphone audio and LiveKit session recording are disabled. Finalized finance text is stored locally and eligible exchanges are sent to Meko; provider retention policies still apply.
 
+## Shared Agent Workspace
+
+Voice and Text use the same server conversation engine at /agent. Record Transaction starts a fresh entry inside that page, disconnecting the old microphone/session. Natural transaction requests use the same validated proposal, exact-revision review and write policy as focused capture. Ordinary questions do not commit a draft.
+
+The model can request account-owned ledger searches by name, date or direction; paginated entries and matching totals; full-ledger dues grouped by person; 30-day Insights; saved finance conversation search; preferences; and semantic Meko recall. The API validates each read and uses parameterized queries; there is no arbitrary SQL or direct model ledger write. A turn makes one structured decision call and, only for a read, one structured answer call. Returned history and memory are untrusted data. Only finance-related exchanges enter history/capture.
+
+Insights includes Dues by Person, calculated across all recorded history from transactions minus settlements, with 20 names per page and the oldest entry date. Names group by their recorded source spelling; this does not merge identity aliases or invent due dates. Agent reads use the same SQL service.
+
 ## Three Runtime Memory Uses
 
 1. **Datapack isolation:** a server-owned SQL mapping associates each authenticated account with its own runtime Meko datapack. Deterministic hashed names, owned-name reconciliation, and leases make provisioning retryable. Clients cannot select another account or datapack.
 2. **Extracted memories:** committed finance exchanges enter a durable outbox. A background worker sends them through Meko's conversation API, which extracts durable facts asynchronously. Provider conversation/message identifiers are stable across retries. Successful queue rows clear their text payloads. Failed updates are visible and retryable in Business Memory. Ledger writes do not wait for extraction.
-3. **Recall before reasoning:** the backend retrieves actual shop facts before asking Groq to interpret a turn. The runtime path uses a bounded recent-memory window, selects up to five relevant facts, and labels its limited coverage. Business Memory provides deeper semantic search. An unavailable source is distinct from a successful empty result.
+3. **Recall before reasoning:** the backend retrieves actual shop facts before asking Groq to interpret a turn. The runtime path uses a bounded recent-memory window, selects up to five relevant facts, and passes at most two compact facts into ordinary turns. An explicit semantic-memory query passes at most four compact excerpts to its answer step. Business Memory provides deeper semantic search. An unavailable source is distinct from a successful empty result.
 
 Expand **Shop Context** under an entry to inspect actual recalled facts. IDs claimed by the model must be in the returned set. Correct/Forget actions operate on verified account-owned memories and invalidate affected unsaved drafts and reviews. Stored conversations are not treated as a fallback source for forgotten facts. Promotion and cross-shop sharing are excluded.
 
@@ -103,13 +116,17 @@ Set `MUNIM_MEMORY_ENABLED=false` and restart API to compare the same finalized i
 
 The hackathon's shared coding-agent build datapack, Check T, judge access, five-minute demo, and Meko feature proposal are separate submission requirements. This runtime implementation does not automatically satisfy them.
 
+Shop-convention turns are queued for explicit memory_add rather than depending on best-effort extraction. Recorded transaction exchanges still use conversation_add_message for asynchronous extraction. Ledger Q&A stays in finance history but is not sent for durable extraction: volatile calculated balances must be read fresh from SQL. Successful queue rows clear their text. Delivery receipts count provider-accepted updates, never claim extracted facts without a returned memory. Failed or interrupted explicit adds require manual review/retry because a timed-out provider write may already have succeeded; unlike conversation capture they are not automatically repeated. Direct Add Convention remains available.
+
+Recent-memory results are cached for up to 60 seconds per account/conversation (100 bounded cache entries). Correct/Forget, explicit additions and delivered captures invalidate the process cache; generation checks prevent an in-flight old response from repopulating it. Semantic retrieval stays available through the agent tool and Business Memory search. A Yugabyte-owned recall revision changes on mutations/delivery, so separate API replicas invalidate their cached windows too. Existing draft invalidation remains database-owned.
+
 ## Latency and Production Controls
 
 | Area | Current Implementation | Still Needs Live Evidence |
 | --- | --- | --- |
 | Measurement | Correlated STT/backend/recall/Groq/TTS/playback timings; token/cache usage; authenticated process-local p50/p95 summary at `/api/voice-metrics` | Acoustic end-to-end latency and concurrent-shop measurements |
 | Turn completion | Configurable STT silence and LiveKit endpoint delay; baseline 600 ms + 100 ms | Hindi pauses, quiet speech, and false-cutoff tradeoff |
-| Model output | Strict tool calling, bounded retries, low reasoning, bounded context/output, stable cacheable prompt prefix | Representative accuracy comparison across reasoning/model choices |
+| Model output | Strict structured actions, one retry for Groq JSON validation failures, low reasoning, bounded context/output | Representative accuracy comparison across reasoning/model choices |
 | Input quality | Browser suppression/echo cancellation plus included LiveKit environmental filter; recognized word required for interruption | Actual noisy shop and nearby-speaker scenarios |
 | Output quality | Brief replies, one synthesis request across sentences, streaming 20 ms PCM, no replay retry after partial speech | Naturalness, interruption recovery, names and amount pronunciation |
 | Operations | Prewarmed VAD/filter, warm workers, load-based job capacity, API concurrency cap, readiness, draining, bounded provider work, durable memory queue | Deployment, region selection, provider quotas, load and failure drills |
@@ -130,22 +147,21 @@ API readiness is `GET /readyz`; it checks database reachability. LiveKit's worke
 
 Choose worker/API/database regions using actual network measurements. Ensure Groq, Sarvam, Meko datapack/retrieval quotas and LiveKit capacity cover simultaneous shops. No paid provider fallback or voice-isolation add-on is enabled automatically.
 
-## Other Screens and Payments
+## Other Screens and Settlements
 
 Transactions provides search, settlement filters, and pagination over its explicitly loaded subset. Insights reads the full account ledger, compares settlement-based money movement, and shows remaining amounts. Entry age is not an invented due date; no profit, bank-balance, or forecasting claims are made.
 
-Razorpay is **Test Mode only**. Expose `POST /api/webhooks/razorpay` through a public HTTPS endpoint and subscribe to `payment_link.paid`. Only verified signed events settle linked requests; unrelated QR/cash/bank payments are not verified. Live keys remain rejected. Per-shop production payment onboarding is not implemented.
+See [the hackathon demo and feature proposal](docs/hackathon-demo.md) for a five-minute story, evidence checklist and the proposed provider-level extraction receipt.
 
 ## What Remains
 
 - Browser/mobile and real microphone validation, including noisy shops, interruptions, script changes, and Hindi/English voice naturalness.
 - Representative financial accuracy scoring and measured p50/p95 latency, throughput, capacity and provider-limit failure drills; no general performance guarantee is claimed.
 - Production deployment, regional placement, monitoring retention/export, quotas, and end-user privacy/consent controls appropriate to launch.
-- Historical ledger questions through voice, applying a payment to an older due, saved-entry corrections/reversals, and record-session restoration after refresh.
-- Production Razorpay onboarding/reconciliation and outbound reminders.
+- Applying a payment to an older due, saved-entry corrections/reversals, and record-session restoration after refresh.
 - Full abuse/content guardrails and deeper memory lifecycle/retention controls. Promotion and shared staff knowledge are intentionally outside this change.
 - Hackathon build-datapack evidence, judge invitation, feature proposal, and final live on/off demo.
 
 ## Verification
 
-`pnpm build` checks all four packages. No automated test suite or test files are included. Manual provider checks use synthetic shop context and do not create financial records. See [CHANGELOG.md](CHANGELOG.md) for changes. A build or successful provider call does not establish live browser behavior, speech accuracy, latency, or deployment health.
+`pnpm build` checks all four packages. No automated test suite or test files are included. Manual verification for this change read the existing local ledger and preferences without creating financial records. SQL totals and both directions in Dues by Person were checked, along with the Agent/Record reset and desktop light/dark rendering. A 390×844 emulated mobile viewport was inspected. Live STT/TTS and noisy-shop behavior were not validated. See [CHANGELOG.md](CHANGELOG.md) for changes. A build or successful provider call does not establish live browser behavior, speech accuracy, latency, or deployment health.

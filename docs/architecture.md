@@ -4,7 +4,7 @@
 
 The React app captures microphone audio and renders temporary captions, the current draft, financial history, and recalled shop context. LiveKit carries audio/data to a TypeScript Agents worker. The worker owns speech lifecycle, interruption handling, and playback, but delegates interpretation and all financial decisions to the Hono API.
 
-The API owns authenticated account boundaries, current draft/revisions, strict Groq tool decisions, approval policy, and atomic ledger writes. YugabyteDB stores financial truth. Meko supplies durable contextual facts, never authoritative payment evidence.
+The API owns authenticated account boundaries, current draft/revisions, strict Groq structured decisions, approval policy, and atomic ledger writes. YugabyteDB stores financial truth. Meko supplies durable contextual facts, never authoritative payment evidence.
 
 | Module | Responsibility |
 | --- | --- |
@@ -13,7 +13,7 @@ The API owns authenticated account boundaries, current draft/revisions, strict G
 | `apps/voice/src/sarvam.ts` | Sarvam realtime recognition and one-request streaming synthesis |
 | `apps/voice/src/config.ts` | Validated voice tuning and worker capacity settings |
 | `apps/api/src/conversations.ts` | Capability/session authorization, revisions, finance history, approval and save |
-| `apps/api/src/services/interpreter.ts` | Bounded memory-before-reasoning and strict Groq tool validation |
+| `apps/api/src/services/interpreter.ts` | Bounded memory-before-reasoning, strict Groq structured output, and result validation |
 | `apps/api/src/services/shop-memory.ts` | Account datapack mapping, recall, extraction queue, correction and forgetting |
 | `apps/api/src/services/meko.ts` | Reused MCP transport and provider-result validation |
 | `packages/contracts/src/index.ts` | Shared validated state, captions, memory facts and transaction contracts |
@@ -24,7 +24,7 @@ The API owns authenticated account boundaries, current draft/revisions, strict G
 2. Browser echo/noise controls and the included agent-side noise filter clean incoming audio. Sarvam emits provisional captions to the pill; only finalized speech enters interpretation. No raw audio is recorded.
 3. The worker sends a stable turn request ID and its last validated draft revision. A network retry reuses the same request body, never a new transaction identity.
 4. The API checks the original active auth session and account, reserves the revision, and marks it processing. Unclassified text is not appended to persisted history.
-5. Outside the SQL transaction, it recalls bounded shop context and calls Groq. An exact greeting fast path bypasses both. Groq can propose a transaction or reply with an explicit intent; schemas have strict, all-required fields and nullable unknowns.
+5. Outside the SQL transaction, it recalls bounded shop context and calls Groq for a strict structured action: reply, proposal, or read. An exact greeting fast path bypasses both. Only a read triggers a second, smaller structured call after the API fetches the authorized data. A Groq `json_validate_failed` response gets one retry within the same deadline; other errors and rate limits are not retried. Schemas have strict, all-required fields and nullable unknowns. Zod prepares each provider schema at the schema-node boundary; the application separately validates and normalizes dates and financial facts before acting. Rate limits return HTTP 429.
 6. The API relocks the conversation, confirms the reserved revision/session/current saving policy, and validates the model result. Only financial exchanges enter history. Their extraction outbox rows commit in the same transaction as the corresponding state, alongside any financial write.
 7. Ordinary replies remain transient. Complete proposals enter review or save under Full Autonomy. A model cannot announce a save before backend commit. New financial events get their own entry identity.
 8. The worker publishes reply text and synthesizes the short reply as one request. Audio streams in 20 ms frames. Only successful uninterrupted playback of an actual review can enable spoken confirmation. Screen confirmation uses the same backend validation and may interrupt an old readback after save verification.
@@ -43,8 +43,14 @@ sequenceDiagram
     A->>D: Reserve revision (no unclassified text)
     A->>M: Scoped recent-memory recall
     M-->>A: Actual facts or unavailable
-    A->>L: Current utterance, draft, finance context, recalled facts
-    L-->>A: Strict proposal or reply
+    A->>L: Current utterance, compact draft/context, strict action schema
+    L-->>A: Reply, proposal, or read action
+    opt Read action
+        A->>D: Execute validated account-scoped read
+        D-->>A: Bounded result and exact aggregates
+        A->>L: Question and bounded result
+        L-->>A: Strict natural-language answer
+    end
     A->>D: Validate revision/policy; save financial state + capture outbox
     A-->>W: Validated state + reply
     W-->>UI: Text + streamed speech

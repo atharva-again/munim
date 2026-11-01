@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Prepare Groq schemas using Zod's schema hook, accept validated calendar dates for transaction proposals, reject ungrounded negated payment interpretations, and expose provider rate limits as HTTP 429.
+- Accept calendar dates for agent reads in India time, honor requested periods in summaries, and report invalid model output without labeling server errors as connection failures.
+- Retry a Groq `json_validate_failed` response once within the existing deadline, and clarify credit-sale and Hindi display examples in the prompt.
+- Replace retry-prone Groq tool-call responses with strict structured actions; bound conversation, memory, and completion context and log quota headers for rate-limit diagnosis.
+- Preserve fields named `description` when preparing Groq structured-output schemas and convert literal constraints to single-value enums.
+- Put Overview before Agent in navigation. Let the Agent workspace use the full main area, remove nested frames, hide the unused Shop Context column, and stretch the text composer across the available width.
+- Keep ledger Q&A in finance history while excluding volatile calculated balances from durable memory extraction.
+- Unified recording and general finance questions in the Agent voice/text workspace; Record Transaction starts a fresh capture in place. Added bounded account-owned read tools without bypassing transaction approval.
+- Added full-history, paginated Dues by Person from transaction/settlement SQL, with multilingual record names and oldest-entry dates.
+- Cached bounded recent Meko recall per conversation with mutation invalidation; route shop teaching through explicit memory adds and distinguish delivery from extraction. Explicit uncertain writes require manual reconciliation.
+- Persist the latest conversational reply so polling/retries do not replay an older reply; bare confirmations only commit when the current reply is a transaction review.
+- Added hackathon demo/feature-proposal guidance. Live voice quality and provider latency remain unmeasured for these changes.
+
+- Removed hosted payment collection, webhook processing, and provider-only ledger metadata; manual settlement tracking remains.
 - Corrected and forgotten memories now refresh in place without hiding an edited fact; Overview labels the preview as recent without claiming an exact rank.
 - Signed-in visits to `/` now redirect to Overview while signed-out visitors still see the landing page.
 - Restored the root changelog location and readable formatting for the Past Conversations screen.
@@ -41,7 +55,7 @@
 ### Changed
 
 - Recording now offers Voice and Text. Removed the Form tab/component and its recording endpoint/client contract.
-- The voice circle connects/cancels/ends; temporary speech previews appear in a neighbouring pill with activity dots. Pause/Resume and red End controls remain available during a call.
+- The voice circle connects/cancels/ends; temporary speech previews appear in an open area beside it with activity dots. Pause/Resume and red End controls remain available during a call.
 - Finance-related exchanges alone enter newly saved conversation history and the extraction queue. Greetings and unrelated replies remain transient.
 - Groq output uses strict tool schemas, nullable unknowns, validated memory IDs, bounded repair attempts, and a configurable low-reasoning default.
 - Reduced configured endpointing baseline from 800+200 ms to 600+100 ms; this is not a measured acoustic speedup.
@@ -65,4 +79,3 @@
 - Added Google-only Better Auth; per-account ledger, preferences, and bilingual onboarding/settings.
 - Added continuous LiveKit/Sarvam voice capture, text entry, approval/autonomous recording, and finance Insights.
 - Simplified Vercel-style navigation, regular Geist typography, monochrome light/dark theme, and professional geometric branding.
-- Added Razorpay Test Mode integration; live payment onboarding remains outside the current build.
