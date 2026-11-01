@@ -1,5 +1,7 @@
 import type { PreferredLanguage } from "@munim/contracts";
 const hindi: Readonly<Record<string, string>> = {
+  "Meko accepted this convention. Check the recalled facts below.": "दुकान की यह बात Meko ने स्वीकार कर ली है। नीचे याद की गई बातें देखें।",
+  "{count} updates delivered to Meko in the last 7 days. Conversation delivery does not confirm that a fact was extracted.": "पिछले 7 दिनों में Meko को {count} अपडेट मिले। बातचीत पहुँचने का मतलब यह नहीं कि उससे कोई बात याद हो गई है।",
   "Dues by Person": "किसका कितना बाकी है",
   "Across all recorded history. Names are grouped as recorded.": "सभी दर्ज हिसाब से। नाम जैसे लिखे हैं, वैसे ही जोड़े गए हैं।",
   "Entries": "एंट्रियाँ",

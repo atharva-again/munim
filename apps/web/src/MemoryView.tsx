@@ -191,7 +191,7 @@ export default function MemoryView({ configured }: { configured: boolean }) {
           {saved && (
             <p role="status" className="mt-3 flex items-center gap-2 text-xs">
               <Check size={14} className="text-status-green" />
-              {t("Convention saved. It may take a moment to appear in recall.")}
+              {t("Meko accepted this convention. Check the recalled facts below.")}
             </p>
           )}
           {error && (
@@ -241,6 +241,7 @@ export default function MemoryView({ configured }: { configured: boolean }) {
           else void loadRecent();
         }}>{t("Try Again")}</button>
       )}
+      {status && status.deliveredCaptures > 0 && <p className="text-xs leading-6 text-muted">{t("{count} updates delivered to Meko in the last 7 days. Conversation delivery does not confirm that a fact was extracted.", { count: status.deliveredCaptures })}</p>}
       {status && status.pendingCaptures > 0 && (
         <p className="text-xs text-muted" role="status">
           {t(

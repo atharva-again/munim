@@ -67,6 +67,7 @@ export const api = {
         configured: z.boolean(),
         status: z.string(),
         pendingCaptures: z.number(),
+        deliveredCaptures: z.number(),
         failedCaptures: z.number(),
       }),
     ),
