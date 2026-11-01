@@ -9,7 +9,7 @@ import {
 } from "@munim/contracts";
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { LanguagePicker } from "./LanguagePicker";
-import { panelClass, primaryClass } from "./ui";
+import { inputClass, panelClass, primaryClass } from "./ui";
 export default function SettingsView({
   preferences,
   onSave,
@@ -28,6 +28,7 @@ export default function SettingsView({
   const [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
   const dirty =
+    selected.shopName.trim() !== preferences.shopName ||
     selected.language !== preferences.language ||
     selected.approvalMode !== preferences.approvalMode;
   const change = (patch: Partial<SavedPreferences>) => {
@@ -60,6 +61,11 @@ export default function SettingsView({
           }
         }}
       >
+        <section className={`${panelClass} p-5 sm:p-7`}>
+          <label htmlFor="settings-shop-name" className="block text-base">{t("Shop Name")}</label>
+          <p className="mt-2 text-xs leading-6 text-muted">{t("The name shown on your dashboard and in navigation.")}</p>
+          <input id="settings-shop-name" className={`${inputClass} mt-5`} value={selected.shopName} maxLength={80} required disabled={busy} onChange={(event) => change({shopName:event.target.value})} />
+        </section>
         <section className={`${panelClass} p-5 sm:p-7`}>
           <h2 className="text-base">{t("Language")}</h2>
           <p className="mt-2 text-xs leading-6 text-muted">
@@ -112,7 +118,7 @@ export default function SettingsView({
           <button
             type="submit"
             className={primaryClass}
-            disabled={busy || !dirty}
+            disabled={busy || !dirty || !selected.shopName.trim()}
           >
             {busy ? t("Saving…") : t("Save Changes")}
           </button>

@@ -22,6 +22,7 @@ export async function readPreferences(
 ) {
   const query = db
     .select({
+      shopName: userPreferences.shopName,
       language: userPreferences.language,
       approvalMode: userPreferences.approvalMode,
     })
@@ -49,7 +50,7 @@ preferenceRoutes.post("/", async (c) => {
   );
   if (!parsed.success)
     return c.json(
-      { error: "Choose your language and how entries should be saved." },
+      { error: "Enter your shop name, choose your language and how entries should be saved." },
       400,
     );
   await db

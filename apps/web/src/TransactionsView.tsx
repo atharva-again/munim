@@ -32,7 +32,7 @@ export default function TransactionsView(props: TransactionListProps) {
         (filter === "settled"
           ? t.settlementStatus === "settled"
           : t.settlementStatus !== "settled")) &&
-      `${t.description} ${t.counterparty} ${t.kind} ${t.paymentMethod}`
+      `${t.description} ${t.counterparty} ${JSON.stringify(t.displayText ?? {})} ${t.kind} ${t.paymentMethod}`
         .toLowerCase()
         .includes(deferredQuery),
   );

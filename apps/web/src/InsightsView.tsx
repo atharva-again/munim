@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   transactionKindLabels,
+  recordTextFor,
   type InsightQuery,
   type Insights,
 } from "@munim/contracts";
@@ -418,10 +419,10 @@ export default function InsightsView({
                       >
                         <span className="min-w-0">
                           <span className="block truncate text-sm">
-                            {entry.counterparty || t("Name Not Recorded")}
+                            {recordTextFor(entry,language).counterparty || t("Name Not Recorded")}
                           </span>
                           <span className="mt-1 block truncate text-xs text-muted">
-                            {entry.description}
+                            {recordTextFor(entry,language).description}
                           </span>
                           <span className="mt-2 flex items-center gap-2 text-[10px] text-muted">
                             <StatusDot
@@ -450,7 +451,7 @@ export default function InsightsView({
                           className="bg-soft px-5 pb-5 pt-2"
                         >
                           <p className="break-words text-xs leading-6">
-                            {entry.description}
+                            {recordTextFor(entry,language).description}
                           </p>
                           <dl className="mt-4 grid grid-cols-2 gap-4 text-xs">
                             <div>

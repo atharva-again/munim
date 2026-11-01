@@ -10,7 +10,7 @@ import { useI18n } from "./i18n";
 import { api } from "./api";
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { LanguagePicker } from "./LanguagePicker";
-import { buttonClass, primaryClass } from "./ui";
+import { buttonClass, inputClass, primaryClass } from "./ui";
 const App = lazy(() => import("./App"));
 type State =
   | { kind: "loading" }
@@ -18,6 +18,7 @@ type State =
   | { kind: "ready"; preferences: Preferences };
 type Step =
   | { kind: "language" }
+  | { kind: "shop"; language: PreferredLanguage }
   | { kind: "approval"; language: PreferredLanguage };
 export default function Workspace() {
   const { t, setLanguage } = useI18n();
@@ -25,6 +26,7 @@ export default function Workspace() {
   const [step, setStep] = useState<Step>({ kind: "language" });
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [selected, setSelected] = useState<PreferredLanguage | null>(null);
+  const [shopName, setShopName] = useState("");
   const [selectedApprovalMode, setSelectedApprovalMode] =
     useState<ApprovalMode | null>(null);
   const [busy, setBusy] = useState(false),
@@ -40,6 +42,8 @@ export default function Workspace() {
       .then((preference) => {
         if (!controller.signal.aborted) {
           if (preference.language) setLanguage(preference.language);
+          setShopName(preference.shopName ?? "");
+          if (preference.language && !preference.shopName) setStep({kind:"shop", language:preference.language});
           setState({ kind: "ready", preferences: preference });
         }
       })
@@ -68,6 +72,7 @@ export default function Workspace() {
   if (
     state.kind === "ready" &&
     state.preferences.language &&
+    state.preferences.shopName &&
     state.preferences.approvalMode
   )
     return (
@@ -80,6 +85,7 @@ export default function Workspace() {
       >
         <App
           preferences={{
+            shopName: state.preferences.shopName,
             language: state.preferences.language,
             approvalMode: state.preferences.approvalMode,
           }}
@@ -125,8 +131,12 @@ export default function Workspace() {
               if (step.kind === "language") {
                 if (language) {
                   setError("");
-                  setStep({ kind: "approval", language });
+                  setStep({ kind: "shop", language });
                 }
+                return;
+              }
+              if (step.kind === "shop") {
+                if (shopName.trim()) setStep({kind:"approval", language:step.language});
                 return;
               }
               if (!approvalMode) return;
@@ -134,6 +144,7 @@ export default function Workspace() {
               setError("");
               try {
                 await savePreferences({
+                  shopName: shopName.trim(),
                   language: step.language,
                   approvalMode,
                 });
@@ -149,8 +160,8 @@ export default function Workspace() {
             }}
           >
             <p className="mb-3 text-[11px] text-muted">
-              {t("Step {step} of 2", {
-                step: step.kind === "language" ? 1 : 2,
+              {t("Step {step} of 3", {
+                step: step.kind === "language" ? 1 : step.kind === "shop" ? 2 : 3,
               })}
             </p>
             <h1
@@ -160,6 +171,7 @@ export default function Workspace() {
             >
               {step.kind === "language"
                 ? t("Choose Your Language")
+                : step.kind === "shop" ? t("What’s Your Shop Called?")
                 : t("How Should Entries Be Saved?")}
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted">
@@ -167,7 +179,7 @@ export default function Workspace() {
                 ? t(
                     "Choose the language for the app and Munim’s replies. You can speak Hindi, English, or both.",
                   )
-                : t(
+                : step.kind === "shop" ? t("Use the name your customers know. You can change it later in Settings.") : t(
                     "Choose whether Munim asks for approval or saves complete entries for you.",
                   )}
             </p>
@@ -181,6 +193,11 @@ export default function Workspace() {
                   }}
                   disabled={busy}
                 />
+              ) : step.kind === "shop" ? (
+                <label className="grid gap-3 text-xs" htmlFor="onboarding-shop-name">
+                  <span className="sr-only">{t("Shop Name")}</span>
+                  <input id="onboarding-shop-name" className={inputClass} value={shopName} maxLength={80} required disabled={busy} onChange={(event) => setShopName(event.target.value)} placeholder={t("e.g. Sharma General Store")} />
+                </label>
               ) : (
                 <ApprovalModePicker
                   value={approvalMode}
@@ -192,22 +209,20 @@ export default function Workspace() {
                 />
               )}
             </div>
-            <p className="mt-4 text-[11px] text-muted">
-              {step.kind === "language"
-                ? t("You can change your language later in Settings.")
-                : t(
-                    "You can change this later in Settings.",
-                  )}
-            </p>
+            {step.kind === "language" && (
+              <p className="mt-4 text-[11px] text-muted">
+                {t("You can change your language later in Settings.")}
+              </p>
+            )}
             <div className="mt-6 flex items-center justify-between gap-3">
-              {step.kind === "approval" && (
+              {step.kind !== "language" && (
                 <button
                   type="button"
                   className={buttonClass}
                   disabled={busy}
                   onClick={() => {
                     setError("");
-                    setStep({ kind: "language" });
+                    setStep(step.kind === "approval" ? {kind:"shop", language:step.language} : { kind: "language" });
                   }}
                 >
                   {t("Back")}
@@ -217,12 +232,12 @@ export default function Workspace() {
                 type="submit"
                 className={`${primaryClass} ml-auto`}
                 disabled={
-                  busy || (step.kind === "language" ? !language : !approvalMode)
+                  busy || (step.kind === "language" ? !language : step.kind === "shop" ? !shopName.trim() : !approvalMode)
                 }
               >
                 {busy
                   ? t("Saving…")
-                  : step.kind === "language"
+                  : step.kind !== "approval"
                     ? t("Continue")
                     : t("Finish Setup")}
               </button>

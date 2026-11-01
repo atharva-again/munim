@@ -7,7 +7,7 @@ import {
   ExternalLink,
   LoaderCircle,
 } from "lucide-react";
-import { transactionKindLabels, type Transaction } from "@munim/contracts";
+import { recordTextFor, transactionKindLabels, type Transaction } from "@munim/contracts";
 import { formatDate, formatRupees } from "./api";
 import {
   EmptyState,
@@ -44,7 +44,7 @@ export function TransactionList({
   emptyTitle = "No Transactions Yet",
   emptyDetail = "Record a sale, expense, payment, or transfer to get started.",
 }: TransactionListProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
 
   if (loading) return <LoadingRows />;
   if (!transactions.length)
@@ -91,6 +91,7 @@ export function TransactionList({
         </thead>
         <tbody>
           {transactions.map((transaction) => {
+            const display = recordTextFor(transaction, language);
             const incoming = transaction.direction === "inflow";
             const transfer = transaction.direction === "transfer";
             const Icon = transfer
@@ -122,10 +123,10 @@ export function TransactionList({
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-[13px]">
-                        {transaction.description}
+                        {display.description}
                       </p>
                       <p className="mt-1.5 truncate text-[11px] text-muted">
-                        {transaction.counterparty ||
+                        {display.counterparty ||
                           t(transactionKindLabels[transaction.kind])}{" "}
                         · {formatDate(transaction.occurredAt)}
                       </p>

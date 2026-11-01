@@ -1,10 +1,11 @@
 import { ChevronDown } from "lucide-react";
-import { transactionKindLabels, type TransactionDraft } from "@munim/contracts";
+import { recordTextFor, transactionKindLabels, type TransactionDraft } from "@munim/contracts";
 import { formatDate, formatRupees } from "./api";
 import { useI18n } from "./i18n";
 import { StatusDot } from "./ui";
 export function EntrySummary({ draft }: { draft: TransactionDraft }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const display = recordTextFor(draft, language);
   const paid =
     draft.settlementStatus === "settled"
       ? (draft.amountPaise ?? 0)
@@ -29,7 +30,7 @@ export function EntrySummary({ draft }: { draft: TransactionDraft }) {
               : formatRupees(draft.amountPaise)}
           </p>
           {draft.counterparty && (
-            <p className="mt-1 text-sm">{draft.counterparty}</p>
+            <p className="mt-1 text-sm">{display.counterparty}</p>
           )}
         </div>
         <p className="flex items-center gap-2 pt-1 text-xs text-muted">
@@ -40,7 +41,7 @@ export function EntrySummary({ draft }: { draft: TransactionDraft }) {
         </p>
       </div>
       <p className="mt-2 break-words text-xs leading-6 text-muted">
-        {draft.description}
+        {display.description}
       </p>
       <details className="group mt-3">
         <summary className="flex w-fit list-none items-center gap-2 rounded-md py-1 text-[11px] text-muted hover:text-fg">
@@ -51,6 +52,8 @@ export function EntrySummary({ draft }: { draft: TransactionDraft }) {
           />
         </summary>
         <dl className="mt-3 grid grid-cols-2 gap-4 text-[11px] text-muted">
+          {display.counterparty !== (draft.counterparty ?? "") && <div><dt>{t("Original Name")}</dt><dd className="mt-1 text-fg">{draft.counterparty}</dd></div>}
+          {display.description !== (draft.description ?? "") && <div><dt>{t("Original Description")}</dt><dd className="mt-1 text-fg">{draft.description}</dd></div>}
           <div>
             <dt>{t("Type")}</dt>
             <dd className="mt-1 text-fg">

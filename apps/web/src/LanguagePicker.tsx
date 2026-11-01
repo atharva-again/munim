@@ -1,9 +1,9 @@
 import { useI18n } from "./i18n";
 import type { PreferredLanguage } from "@munim/contracts";
 const choices = [
-  { value: "hi", label: "हिन्दी", description: "Hindi" },
-  { value: "en", label: "English", description: "English" },
-] satisfies { value: PreferredLanguage; label: string; description: string }[];
+  { value: "hi", label: "हिन्दी" },
+  { value: "en", label: "English" },
+] satisfies { value: PreferredLanguage; label: string }[];
 export function LanguagePicker({
   value,
   onChange,
@@ -24,7 +24,7 @@ export function LanguagePicker({
       {choices.map((choice) => (
         <label
           key={choice.value}
-          className={`flex items-start gap-3 rounded-lg border p-4 ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-soft"} ${value === choice.value ? "border-fg bg-soft" : "border-line"}`}
+          className={`flex items-center gap-3 rounded-lg border p-4 ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-soft"} ${value === choice.value ? "border-fg bg-soft" : "border-line"}`}
         >
           <input
             type="radio"
@@ -32,16 +32,9 @@ export function LanguagePicker({
             value={choice.value}
             checked={value === choice.value}
             onChange={() => onChange(choice.value)}
-            className="mt-0.5 size-4 accent-fg enabled:cursor-pointer"
+            className="size-4 accent-fg enabled:cursor-pointer"
           />
-          <span>
-            <span className="block text-sm">{choice.label}</span>
-            {t(choice.description) !== choice.label && (
-              <span className="mt-2 block text-[11px] text-muted">
-                {t(choice.description)}
-              </span>
-            )}
-          </span>
+          <span className="text-sm">{choice.label}</span>
         </label>
       ))}
     </fieldset>

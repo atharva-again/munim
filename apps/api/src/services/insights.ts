@@ -31,7 +31,7 @@ export async function readInsights(
           : sql`true`;
   const result = await db.execute(sql`
     with balances as (
-      select t.id, t.kind, t.direction, t.description, t.counterparty, t.amount_paise, t.occurred_at,
+      select t.id, t.kind, t.direction, t.description, t.counterparty, t.display_text, t.amount_paise, t.occurred_at,
         coalesce(sum(s.amount_paise), 0) as paid_paise,
         greatest(0, t.amount_paise - coalesce(sum(s.amount_paise), 0)) as remaining_paise,
         greatest(0, floor(extract(epoch from (${asOf}::timestamptz - t.occurred_at)) / 86400))::integer as age_days
@@ -81,7 +81,7 @@ export async function readInsights(
           from (values ('under7', 0, 7), ('7to29', 7, 30), ('30plus', 30, 2147483647)) as b(bucket, minimum, maximum))) from dues),
       'entries', json_build_object('total', (select total from bounds), 'page', (select page from bounds), 'pageSize', 20,
         'items', coalesce((select json_agg(json_build_object('id', f.id, 'kind', f.kind, 'direction', f.direction,
-          'description', f.description, 'counterparty', f.counterparty, 'amountPaise', f.amount_paise,
+          'description', f.description, 'counterparty', f.counterparty, 'displayText', f.display_text, 'amountPaise', f.amount_paise,
           'paidPaise', f.paid_paise, 'remainingPaise', f.remaining_paise, 'occurredAt', f.occurred_at, 'ageDays', f.age_days)
           order by f.remaining_paise desc, f.occurred_at, f.id)
           from (select * from filtered order by remaining_paise desc, occurred_at, id limit 20 offset (select page * 20 from bounds)) f), '[]'::json))
