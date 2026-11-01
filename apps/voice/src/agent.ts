@@ -135,7 +135,7 @@ class MunimAgent extends voice.Agent {
         `Munim conversation request failed (${response.status}).`,
       );
     const state = conversationSchema.parse(await response.json());
-    this.language = state.language;
+    this.language = state.replyLanguage;
     this.latest = state;
     return state;
   }
@@ -369,19 +369,18 @@ export default defineAgent({
           );
       } catch {}
     });
-    session.on(voice.AgentSessionEventTypes.Close, () =>
-      ctx.shutdown("Voice session ended"),
-    );
-    const lifetime = setTimeout(() => {
-      agent.close();
-      void session.close();
-    }, 20 * 60000);
+    session.on(voice.AgentSessionEventTypes.Close, (event) => {
+      console.info("[voice-session-close]", {
+        conversationId: metadata.id,
+        reason: event.reason,
+        errorType: event.error?.type,
+      });
+      ctx.shutdown("Voice session ended");
+    });
     ctx.addShutdownCallback(async () => {
-      clearTimeout(lifetime);
       await session.close();
     });
     if (!ctx.room.remoteParticipants.has(`owner-${metadata.id}`)) {
-      clearTimeout(lifetime);
       ctx.shutdown("Voice caller left");
       return;
     }

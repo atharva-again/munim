@@ -62,10 +62,10 @@ export const conversations = {
       conversationSchema,
       options(session, { revision: session.conversation.revision }),
     ),
-  voiceToken: (session: RecordingSession) =>
+  voiceToken: (session: RecordingSession, signal?: AbortSignal) =>
     requestJson(
       `/api/conversations/${session.conversation.id}/voice-token`,
       voiceTokenSchema,
-      options(session, {}),
+      { ...options(session, {}), signal },
     ),
 };

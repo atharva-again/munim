@@ -13,7 +13,6 @@ import {
   PhoneOff,
   Volume2,
   VolumeX,
-  ChevronDown,
   LoaderCircle,
   Keyboard,
 } from "lucide-react";
@@ -45,6 +44,10 @@ export default function VoiceSession({
   const { t } = useI18n();
   const roomRef = useRef<Room | null>(null),
     cleanupRef = useRef<(() => void) | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stableTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retries = useRef(0);
+  const mutedRef = useRef(false);
   const audioRef = useRef<HTMLDivElement>(null),
     quietRef = useRef(false);
   const onUpdateRef = useRef(onUpdate),
@@ -79,12 +82,17 @@ export default function VoiceSession({
       setProcessing(false);
   }, [session.conversation.phase, session.conversation.revision]);
   const stop = async () => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    if (stableTimer.current) clearTimeout(stableTimer.current);
+    retryTimer.current = null;
+    stableTimer.current = null;
     const room = roomRef.current;
     roomRef.current = null;
     cleanupRef.current?.();
     cleanupRef.current = null;
     audioRef.current?.replaceChildren();
     setConnection("idle");
+    setAwaitingPermission(false);
     setProcessing(false);
     setSpeaking(false);
     setUserSpeaking(false);
@@ -94,6 +102,10 @@ export default function VoiceSession({
   };
   useEffect(
     () => () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (stableTimer.current) clearTimeout(stableTimer.current);
+      retryTimer.current = null;
+      stableTimer.current = null;
       const room = roomRef.current;
       roomRef.current = null;
       cleanupRef.current?.();
@@ -121,17 +133,21 @@ export default function VoiceSession({
     session.conversation.transactionId,
     session.conversation.id,
   ]);
-  const start = async () => {
+  const start = async (recovering = false) => {
     if (roomRef.current) return;
     setError("");
     setAwaitingPermission(true);
-    setConnection("connecting");
+    setConnection(recovering ? "reconnecting" : "connecting");
     setStarted(true);
     setProcessing(false);
     setSpeaking(false);
     setUserSpeaking(false);
-    setMuted(false);
-    setExchange({ user: "", assistant: "" });
+    if (!recovering) {
+      retries.current = 0;
+      mutedRef.current = false;
+      setMuted(false);
+      setExchange({ user: "", assistant: "" });
+    }
     lastLocalEnd.current = null;
     localWasSpeaking.current = false;
     setAudioBlocked(false);
@@ -140,6 +156,7 @@ export default function VoiceSession({
       disconnectOnPageLeave: true,
     });
     roomRef.current = room;
+    const connectAbort = new AbortController();
     let microphone: LocalAudioTrack | undefined;
     let agentTimeout: ReturnType<typeof setTimeout> | undefined;
     let resolveReady: (ready: boolean) => void = () => {};
@@ -149,6 +166,7 @@ export default function VoiceSession({
     });
     cleanupRef.current = () => {
       clearTimeout(agentTimeout);
+      connectAbort.abort();
       resolveReady(false);
       room.removeAllListeners();
       microphone?.stop();
@@ -158,6 +176,31 @@ export default function VoiceSession({
       if (!current()) return;
       setError(message);
       void stop();
+    };
+    const recover = () => {
+      if (!current()) return;
+      if (stableTimer.current) clearTimeout(stableTimer.current);
+      stableTimer.current = null;
+      if (retries.current >= 3) {
+        fail("Munim couldn’t reconnect. Try again or type your entry.");
+        return;
+      }
+      retries.current += 1;
+      roomRef.current = null;
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+      audioRef.current?.replaceChildren();
+      setProcessing(false);
+      setSpeaking(false);
+      setUserSpeaking(false);
+      setConnection("reconnecting");
+      onActiveRef.current(false);
+      onProcessingRef.current(false);
+      void room.disconnect();
+      retryTimer.current = setTimeout(() => {
+        retryTimer.current = null;
+        void start(true);
+      }, 1500);
     };
     const agentState = (participant: Participant) => {
       if (!current() || !participant.isAgent) return;
@@ -182,8 +225,7 @@ export default function VoiceSession({
       agentReady(participant),
     );
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-      if (participant.isAgent)
-        fail("This conversation ended. Start again to continue.");
+      if (participant.isAgent) recover();
     });
     room.on(RoomEvent.TrackSubscribed, (track) => {
       if (!current() || track.kind !== Track.Kind.Audio) return;
@@ -235,7 +277,7 @@ export default function VoiceSession({
         });
     });
     room.on(RoomEvent.Disconnected, () => {
-      if (current()) fail("This conversation ended. Start again to continue.");
+      recover();
     });
     room.on(RoomEvent.MediaDevicesError, () =>
       fail(
@@ -307,7 +349,7 @@ export default function VoiceSession({
         return;
       }
       setAwaitingPermission(false);
-      const credentials = await conversations.voiceToken(session);
+      const credentials = await conversations.voiceToken(session, connectAbort.signal);
       if (!current()) return;
       await room.connect(credentials.url, credentials.token);
       if (!current()) {
@@ -317,10 +359,11 @@ export default function VoiceSession({
       room.remoteParticipants.forEach(agentReady);
       if (!agentFound)
         agentTimeout = setTimeout(() => {
-          if (current())
-            fail("Munim couldn’t connect. Try again or type your entry.");
+          if (recovering) recover();
+          else fail("Munim couldn’t connect. Try again or type your entry.");
         }, 25000);
       if (!(await ready) || !current()) return;
+      if (mutedRef.current) await microphone.mute();
       await room.localParticipant.publishTrack(microphone, {
         source: Track.Source.Microphone,
       });
@@ -331,6 +374,18 @@ export default function VoiceSession({
       }
       setConnection("active");
       onActiveRef.current(true);
+      stableTimer.current = setTimeout(() => {
+        retries.current = 0;
+        stableTimer.current = null;
+      }, 60_000);
+      if (recovering) {
+        void conversations
+          .get(session)
+          .then((state) => {
+            if (current()) onUpdateRef.current(state);
+          })
+          .catch(() => {});
+      }
     } catch (caught) {
       if (!current()) return;
       const permission =
@@ -341,11 +396,12 @@ export default function VoiceSession({
       console.warn("[voice-connect]", {
         reason: caught instanceof Error ? caught.name : "unknown",
       });
-      fail(
-        permission
-          ? "Your microphone is blocked. Allow it in your browser, then try again."
-          : "Munim couldn’t connect. Try again or type your entry.",
-      );
+      if (permission)
+        fail(
+          "Your microphone is blocked. Allow it in your browser, then try again.",
+        );
+      else if (recovering) recover();
+      else fail("Munim couldn’t connect. Try again or type your entry.");
     }
   };
   const connected = connection === "active";
@@ -384,7 +440,7 @@ export default function VoiceSession({
           : processing
             ? "I’m checking the details."
             : "Tell me what happened. You can keep talking naturally.";
-  const circleLabel = joining ? "Cancel" : connected ? "End" : "Start Talking";
+  const circleLabel = joining ? "Cancel" : connected ? "End" : "Press Mic to Start";
   const communicating =
     connected && !muted && (userSpeaking || processing || speaking);
   return (
@@ -399,6 +455,7 @@ export default function VoiceSession({
             onClick={() => {
               if (connected || joining) {
                 setError("");
+                if (joining) setStarted(false);
                 void stop();
               } else void start();
             }}
@@ -476,6 +533,17 @@ export default function VoiceSession({
           )}
         </div>
       </div>
+      {joining && (
+        <div className="mt-6 flex justify-center sm:justify-start sm:pl-35">
+          <button type="button" className={buttonClass} onClick={() => {
+            setError("");
+            setStarted(false);
+            void stop();
+          }}>
+            {t("Cancel")}
+          </button>
+        </div>
+      )}
       {connected && (
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2 sm:justify-start sm:pl-35">
           <button
@@ -490,6 +558,7 @@ export default function VoiceSession({
               if (!room) return;
               try {
                 await room.localParticipant.setMicrophoneEnabled(muted);
+                mutedRef.current = !muted;
                 setMuted(!muted);
               } catch {
                 setError(
@@ -511,6 +580,22 @@ export default function VoiceSession({
           >
             <PhoneOff size={15} />
             {t("End")}
+          </button>
+          <button
+            type="button"
+            className={buttonClass}
+            aria-pressed={quiet}
+            onClick={() => {
+              const next = !quiet;
+              quietRef.current = next;
+              audioRef.current?.querySelectorAll("audio").forEach((element) => {
+                element.muted = next;
+              });
+              setQuiet(next);
+            }}
+          >
+            {quiet ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            {t(quiet ? "Unmute Voice" : "Mute Voice")}
           </button>
         </div>
       )}
@@ -546,39 +631,6 @@ export default function VoiceSession({
           <Volume2 size={14} />
           {t("Enable Sound")}
         </button>
-      )}
-      {connected && (
-        <details className="group mt-4 text-xs text-muted">
-          <summary className="flex w-fit list-none items-center gap-2 rounded-md py-2">
-            {t("More Controls")}
-            <ChevronDown size={13} className="group-open:rotate-180" />
-          </summary>
-          <button
-            type="button"
-            className={buttonClass}
-            aria-pressed={quiet}
-            onClick={() => {
-              const next = !quiet;
-              quietRef.current = next;
-              audioRef.current?.querySelectorAll("audio").forEach((element) => {
-                element.muted = next;
-              });
-              setQuiet(next);
-            }}
-          >
-            {quiet ? <VolumeX size={14} /> : <Volume2 size={14} />}
-            {t(quiet ? "Unmute Voice" : "Mute Voice")}
-          </button>
-        </details>
-      )}
-      {!started && (
-        <p className="mt-4 text-center text-[11px] text-muted sm:text-left sm:pl-35">
-          {t(
-            session.conversation.approvalMode === "autonomous"
-              ? "Saves Automatically"
-              : "I’ll Ask Before Saving",
-          )}
-        </p>
       )}
       <div ref={audioRef} className="hidden" />
     </section>

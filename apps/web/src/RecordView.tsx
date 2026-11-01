@@ -1,4 +1,6 @@
 import { useI18n } from "./i18n";
+import { Link } from "react-router-dom";
+import { ChatBubble } from "./ChatBubble";
 import {
   lazy,
   Suspense,
@@ -47,6 +49,11 @@ export default function RecordView({
     [active, setActive] = useState(false);
   const [text, setText] = useState(""),
     [error, setError] = useState("");
+  const [chat, setChat] = useState<{ id: string; role: "user" | "assistant"; text: string; at: number }[]>([]);
+  const chatEnd = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mode === "text") chatEnd.current?.scrollIntoView({ block: "nearest" });
+  }, [chat.length, busy, mode, session?.conversation.messages.length]);
   const savedId = useRef<string | null>(null),
     pending = useRef(false);
   const currentRevision = useRef(-1);
@@ -84,6 +91,8 @@ export default function RecordView({
       currentSessionId.current = result.conversation.id;
       setActive(false);
       setLastSaved(null);
+      setChat([]);
+      setText("");
       snapshotRef.current = result.conversation;
       setSession(result);
     } catch (caught) {
@@ -239,9 +248,15 @@ export default function RecordView({
   };
   const changeMode = (next: Mode) => setMode(next);
   const state = session?.conversation;
+  const displayedChat = [
+    ...(state?.messages.filter((message) => message.channel === "voice").map((message) => ({
+      id: `${message.at}-${message.role}`, role: message.role, text: message.text, at: Date.parse(message.at),
+    })) ?? []),
+    ...chat,
+  ].sort((left, right) => left.at - right.at);
   const autonomous = preferences.approvalMode === "autonomous";
   return (
-    <section className="mx-auto flex w-full max-w-220 flex-col gap-5">
+    <section className="mx-auto grid w-full max-w-300 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_17rem]">
       <h1 className="sr-only">{t("Record Transaction")}</h1>
       <div className="rounded-xl border border-line bg-canvas">
         <div
@@ -274,6 +289,7 @@ export default function RecordView({
               {t(label)}
             </button>
           ))}
+          <Link to="/conversations" className="ml-auto flex items-center px-2 pb-2 text-[11px] text-muted hover:text-fg">{t("Past Conversations")}</Link>
         </div>
         <div
           className="px-5 pb-6 sm:px-7"
@@ -314,41 +330,55 @@ export default function RecordView({
             </Suspense>
           )}
           {session && mode === "text" && (
+            <div className="flex flex-col pt-5">
+              <div role="log" aria-label={t("Conversation")} aria-live="polite" className="max-h-[45dvh] min-h-48 space-y-3 overflow-y-auto overscroll-contain px-1 pb-5">
+                {displayedChat.length === 0 && (
+                  <ChatBubble role="assistant" text={t("What would you like to record?")} />
+                )}
+                {displayedChat.map((message) => (
+                  <ChatBubble key={message.id} role={message.role} text={message.text} at={message.at} />
+                ))}
+                {busy && <p role="status" className="text-xs text-muted">{t("Understanding…")}</p>}
+                <div ref={chatEnd} />
+              </div>
             <form
-              className="py-5"
+              className="mb-5 rounded-xl border border-line bg-canvas p-3"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!text.trim()) return;
+                if (!text.trim() || busy || voiceProcessing || state?.phase === "processing" || !session.textConfigured) return;
                 void run(async () => {
                   const attempt =
                     retry.current?.text === text
                       ? retry.current
                       : { text, requestId: crypto.randomUUID() };
                   retry.current = attempt;
-                  update(
-                    await conversations.turn(
+                  setChat((previous) => previous.some((message) => message.id === attempt.requestId)
+                    ? previous : [...previous, {id: attempt.requestId, role: "user", text: attempt.text, at: Date.now()}]);
+                  const reply = await conversations.turn(
                       session,
                       attempt.text,
                       attempt.requestId,
-                    ),
-                  );
+                    );
+                  update(reply);
+                  setChat((previous) => [...previous, {id: `${attempt.requestId}-reply`, role: "assistant", text: reply.reply, at: Date.now()}]);
                   retry.current = null;
                   setText("");
                 });
               }}
             >
-              <label className="grid gap-3 text-xs" htmlFor="record-message">
-                {t("Tell Munim What Happened")}
+              <label className="grid gap-2 text-xs" htmlFor="record-message">
+                <span className="sr-only">{t("Message Munim")}</span>
                 <textarea
                   id="record-message"
-                  className={`${inputClass} min-h-24 resize-y`}
+                  className={`${inputClass} min-h-20 resize-y border-0`}
                   maxLength={2000}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(event)=>{if(event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}
                   placeholder={t(
                     state?.phase === "review"
                       ? "Tell me what to change, for example: make the amount ₹550."
-                      : "Ramesh took ₹500 of goods, paid ₹200, and owes ₹300.",
+                      : displayedChat.length ? "Type your reply…" : "Tell Munim what happened…",
                   )}
                   disabled={
                     busy ||
@@ -380,14 +410,8 @@ export default function RecordView({
                 </p>
               )}
             </form>
+            </div>
           )}
-          {state?.phase === "collecting" &&
-            mode === "text" &&
-            state.revision > 0 && (
-              <div className="mb-5 rounded-lg bg-soft p-4" role="status">
-                <p className="text-sm leading-7">{state.reply}</p>
-              </div>
-            )}
           {session && state?.phase === "review" && (
             <section
               className="mb-5 rounded-lg border border-line p-4 sm:p-5"
@@ -444,20 +468,7 @@ export default function RecordView({
               <EntrySummary draft={lastSaved.draft} />
             </section>
           )}
-          {state && (
-            <MemoryEvidence
-              key={`${state.id}-${state.revision}`}
-              memory={state.memory}
-              onChanged={() => {
-                if (session)
-                  void conversations
-                    .get(session)
-                    .then(update)
-                    .catch(() => {});
-              }}
-            />
-          )}
-          {state && state.messages.length > 0 && (
+          {mode === "voice" && state && state.messages.length > 0 && (
             <details className="group mb-4 border-t border-line pt-3">
               <summary className="flex list-none items-center justify-between gap-2 rounded-md py-2 text-xs text-muted hover:text-fg">
                 {t("Conversation History")}
@@ -511,6 +522,17 @@ export default function RecordView({
           )}
         </div>
       </div>
+      {state && (
+        <aside className="order-first min-w-0 xl:order-last xl:sticky xl:top-0" aria-label={t("Shop Context")}>
+          <MemoryEvidence
+            key={state.id}
+            memory={state.memory}
+            onChanged={() => {
+              if (session) void conversations.get(session).then(update).catch(() => {});
+            }}
+          />
+        </aside>
+      )}
     </section>
   );
 }

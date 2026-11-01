@@ -25,7 +25,8 @@ import { recordTiming } from "./services/metrics.js";
 import { readPreferences } from "./preferences.js";
 import type { ApiEnv } from "./auth.js";
 import { getDatabase } from "./db/index.js";
-import { conversations } from "./db/schema.js";
+import { conversations, conversationHistory } from "./db/schema.js";
+import { conversationMessageSchema } from "@munim/contracts";
 import { insertTransaction } from "./services/ledger.js";
 import {
   interpret,
@@ -43,6 +44,14 @@ import {
 export const conversationRoutes = new Hono<ApiEnv>();
 const hash = (token: string) => createHash("sha256").update(token).digest();
 const receiptsSchema = z.record(z.string(), conversationSchema);
+async function archiveConversation(tx: Parameters<typeof insertTransaction>[0], state: Conversation, businessId: string) {
+  if (!state.messages.length) return;
+  const [existing] = await tx.select().from(conversationHistory).where(and(eq(conversationHistory.id,state.id),eq(conversationHistory.businessId,businessId)));
+  const previous = existing ? z.array(conversationMessageSchema).parse(existing.messages) : [];
+  const keys = new Set(previous.map((message) => JSON.stringify(message)));
+  const messages = [...previous, ...state.messages.filter((message) => !keys.has(JSON.stringify(message)))];
+  await tx.insert(conversationHistory).values({id:state.id,businessId,messages,updatedAt:new Date(messages.at(-1)?.at ?? Date.now())}).onConflictDoUpdate({target:conversationHistory.id,set:{messages,updatedAt:new Date(messages.at(-1)?.at ?? Date.now())}});
+}
 class ConversationError extends Error {
   constructor(
     message: string,
@@ -263,6 +272,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
     }
     let receipts = receiptsSchema.parse(row.receipts);
     const persist = async () => {
+      await archiveConversation(tx, state, row.businessId);
       await tx
         .update(conversations)
         .set({ state, receipts })
@@ -302,8 +312,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         );
       state.voiceReviewedRevision = null;
       if (state.phase === "review") {
-        state.replyLanguage = state.language;
-        state.reply = reviewText(state);
+        state.reply = reviewText(state, state.replyLanguage);
         state.replyIsReview = true;
       }
       await tx
@@ -513,7 +522,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       );
       let state: Conversation = {
         ...(result.kind === "reply" ? operation.previous : latest),
-        memory: result.memory,
+        memory: result.financeRelated ? result.memory : operation.previous.memory,
         language: currentPreferences.language ?? latest.language,
         approvalMode: currentPreferences.approvalMode ?? "approval",
         replyLanguage: result.language,
@@ -577,6 +586,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         ...Object.entries(receiptsSchema.parse(row.receipts)).slice(-31),
         [turn.requestId, state],
       ]);
+      await archiveConversation(tx, state, row.businessId);
       await tx
         .update(conversations)
         .set({ state, receipts })
