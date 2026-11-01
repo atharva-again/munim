@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- Corrected and forgotten memories now refresh in place without hiding an edited fact; Overview labels the preview as recent without claiming an exact rank.
+- Signed-in visits to `/` now redirect to Overview while signed-out visitors still see the landing page.
+- Restored the root changelog location and readable formatting for the Past Conversations screen.
+- Added compact, real-data Insights and recent Business Memory previews to Overview, each linking to its full page; hide the memory preview when no saved fact is available.
+- Automatically cycle the landing page examples with a progress timeline and reduced-motion support; place the language switch beside the theme control in the footer.
+- Keep example autoplay running while the pointer hovers or a selector remains focused; animate the timeline fill directly and pause only for hidden tabs or reduced motion.
+
+- Added a public English/Hindi homepage with monochrome editorial imagery, an interactive local transaction example, product explanations and FAQs, and conversion links into Google sign-in/onboarding. The app and voice bundle remain separate from the landing page.
+
+- Added bilingual record display text separate from original transcripts/fields, app-language switching for record cards, Transactions and Insights, a durable read-only finance conversation archive with a Past Conversations route, and shared incoming/outgoing chat bubbles.
+
+- Added a separate shop-name onboarding step, account-persisted name editing in Settings, and shop identity in navigation/Overview. Added browser routes for every screen, real navigation links, direct-link preservation through sign-in, and Back/Forward support.
+
+- Aligned the spoken connection greeting with the text prompt: “What would you like to record?” / “क्या हिसाब लिखना है?” in the selected app language.
+
+- Business Memory loads up to 20 recent saved memories automatically, with visible loading/empty/unavailable states, correction/forget actions, and a way back from search results.
+
+- Text recording now shows chat messages above a follow-up composer. Shop Context sits beside recording on wide screens and above it on smaller screens, stays expanded across voice revisions, and retains the latest entry context through transient chatter.
+
+- Removed the saving-policy caption beneath the microphone. Choose spoken reply language from the current turn, retain established draft facts, validate payment evidence with one bounded repair, and ask only for missing material details.
+
+- Removed the 20-minute voice-call cutoff and added bounded recovery after unexpected room or worker disconnects. Preserved microphone pause state during reconnection and added session-close reason logging.
+- Start a fresh recording session after leaving the page; make the microphone action, connection cancellation, and voice-mute control easier to find.
+
 ## 2026-11-01
 
 ### Added
