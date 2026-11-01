@@ -3,14 +3,16 @@ import { peopleDuesSchema, peopleDuesQuerySchema } from "@munim/contracts";
 import { z } from "zod";
 import { getDatabase } from "../db/index.js";
 
-export async function readPeopleDues(db: NonNullable<ReturnType<typeof getDatabase>>, businessId: string, query: z.infer<typeof peopleDuesQuerySchema>) {
+export async function readPeopleDues(db: NonNullable<ReturnType<typeof getDatabase>>, businessId: string, query: z.infer<typeof peopleDuesQuerySchema>, search = "") {
   const asOf = new Date().toISOString();
+  const term = `%${search.trim().replace(/[\\%_]/g, "\\$&")}%`;
   const result = await db.execute(sql`with balances as (
     select t.id,t.counterparty,t.display_text,t.occurred_at,
       greatest(0,t.amount_paise-coalesce(sum(s.amount_paise),0)) as remaining
     from munim_transactions t left join munim_settlements s on s.transaction_id=t.id
       and s.business_id=${businessId} and s.occurred_at<=${asOf}::timestamptz
     where t.business_id=${businessId} and t.direction=${query.direction} and t.occurred_at<=${asOf}::timestamptz
+      and t.counterparty ilike ${term}
     group by t.id
   ), people as (
     select counterparty,sum(remaining) as remaining,count(*)::int as entries,min(occurred_at) as oldest,

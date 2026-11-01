@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Clear an existing payment status when a proposed change lacks evidence, filter agent totals by the requested person, and preserve legacy payment records during database setup.
 - Prepare Groq schemas using Zod's schema hook, accept validated calendar dates for transaction proposals, reject ungrounded negated payment interpretations, and expose provider rate limits as HTTP 429.
 - Accept calendar dates for agent reads in India time, honor requested periods in summaries, and report invalid model output without labeling server errors as connection failures.
 - Retry a Groq `json_validate_failed` response once within the existing deadline, and clarify credit-sale and Hindi display examples in the prompt.
@@ -15,7 +16,7 @@
 - Persist the latest conversational reply so polling/retries do not replay an older reply; bare confirmations only commit when the current reply is a transaction review.
 - Added hackathon demo/feature-proposal guidance. Live voice quality and provider latency remain unmeasured for these changes.
 
-- Removed hosted payment collection, webhook processing, and provider-only ledger metadata; manual settlement tracking remains.
+- Removed hosted payment collection and webhook processing; manual settlement tracking and legacy provider records remain.
 - Corrected and forgotten memories now refresh in place without hiding an edited fact; Overview labels the preview as recent without claiming an exact rank.
 - Signed-in visits to `/` now redirect to Overview while signed-out visitors still see the landing page.
 - Restored the root changelog location and readable formatting for the Past Conversations screen.

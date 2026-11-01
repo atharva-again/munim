@@ -79,7 +79,7 @@ export const createTransactionSchema = z.object({
 export const transactionSchema = createTransactionSchema.extend({
   id: z.string().uuid(),
   businessId: z.string(),
-  source: z.enum(["manual", "voice"]),
+  source: z.enum(["manual", "voice", "razorpay"]),
   paymentMethod: paymentMethodSchema.nullable(),
   occurredAt: z.string().datetime(),
   createdAt: z.string().datetime(),

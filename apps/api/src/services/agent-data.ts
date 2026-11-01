@@ -35,7 +35,7 @@ export async function readAgentData(input: z.infer<typeof agentReadSchema>, busi
   if (input.source === "preferences") return readPreferences(db, businessId);
   if (input.source === "memory") return recallShopContext({ businessId, conversationId, query: input.query, retrieval: "semantic", signal, timeoutMs: 5000 });
   if (input.source === "summary") {
-    if (from || to) {
+    if (from || to || input.query || input.kind !== "all" || input.direction !== "all") {
       const asOf = new Date().toISOString();
       const term = /^(?:this month|last month|इस महीने|पिछले महीने)$/iu.test(input.query.trim())
         ? "%%"
@@ -85,7 +85,15 @@ export async function readAgentData(input: z.infer<typeof agentReadSchema>, busi
       stillOwedByShopAllHistoryPaise: data.outstanding.payPaise,
       meaning: "Owed, due or outstanding means ONLY the still-unpaid balance. Never add already-paid amounts to an outstanding total. All monetary values are integer paise, divide by 100 for rupees." };
   }
-  if (input.source === "people") return readPeopleDues(db, businessId, { direction: input.direction === "outflow" ? "outflow" : "inflow", page: input.page });
+  if (input.source === "people") {
+    if (input.direction !== "all")
+      return readPeopleDues(db, businessId, { direction: input.direction, page: input.page }, input.query);
+    const [toCollect, toPay] = await Promise.all([
+      readPeopleDues(db, businessId, { direction: "inflow", page: input.page }, input.query),
+      readPeopleDues(db, businessId, { direction: "outflow", page: input.page }, input.query),
+    ]);
+    return { toCollect, toPay };
+  }
   const term = `%${input.query.replace(/[\\%_]/g, "\\$&")}%`;
   if (input.source === "conversations") {
     const result = await db.execute(sql`select id, updated_at, messages from munim_conversation_history

@@ -577,6 +577,8 @@ export async function interpret(
             undefined
           : undefined,
     });
+    if (changedStatus && !quoteIsCurrent && !explicitStatus)
+      draft.settlementStatus = undefined;
     return {
       kind: "proposal" as const,
       financeRelated: true,
