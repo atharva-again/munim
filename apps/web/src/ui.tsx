@@ -2,7 +2,7 @@ import { useI18n } from "./i18n";
 import type { ReactNode } from "react";
 
 export const buttonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-line bg-canvas px-3 py-2 text-xs whitespace-nowrap enabled:hover:border-fg";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-line bg-canvas px-3 py-2 text-xs whitespace-nowrap cursor-pointer disabled:cursor-not-allowed enabled:hover:border-fg";
 export const primaryClass = `${buttonClass} border-fg bg-fg text-canvas enabled:hover:border-fg enabled:hover:bg-fg/85`;
 export const iconButtonClass =
   "inline-grid size-8 shrink-0 place-items-center rounded-md text-muted enabled:hover:bg-soft enabled:hover:text-fg";

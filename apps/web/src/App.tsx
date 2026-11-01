@@ -1,4 +1,5 @@
 import { localizedError } from "./translations";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useI18n } from "./i18n";
 import {
   lazy,
@@ -33,6 +34,7 @@ import type {
 import { authClient } from "./auth-client";
 import { api, formatRupees, type ApiHealth } from "./api";
 import { TransactionList } from "./TransactionList";
+import { OverviewPreviews } from "./OverviewPreviews";
 import {
   headingClass,
   iconButtonClass,
@@ -47,13 +49,21 @@ const MemoryView = lazy(() => import("./MemoryView"));
 const TransactionsView = lazy(() => import("./TransactionsView"));
 const SettingsView = lazy(() => import("./SettingsView"));
 const InsightsView = lazy(() => import("./InsightsView"));
+const HistoryView = lazy(() => import("./HistoryView"));
 type View =
   | "overview"
   | "transactions"
   | "insights"
   | "memory"
   | "record"
-  | "settings";
+  | "settings"
+  | "history";
+const pagePaths: Record<View, string> = {
+  overview: "/overview", record: "/record", transactions: "/transactions",
+  insights: "/insights", memory: "/business-memory", settings: "/settings",
+  history: "/conversations",
+};
+const views: View[] = ["overview", "record", "transactions", "insights", "memory", "settings", "history"];
 const navigation = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
   { id: "transactions", label: "Transactions", Icon: ListOrdered },
@@ -90,7 +100,11 @@ export default function App({
 }) {
   const { t, language } = useI18n();
 
-  const [view, setView] = useState<View>("overview");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const matchedView = views.find((candidate) => pagePaths[candidate] === location.pathname.replace(/\/$/, ""));
+  const view = matchedView ?? "overview";
+  const setView = useCallback((next: View) => navigate(pagePaths[next]), [navigate]);
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     contentRef.current?.scrollTo({ top: 0 });
@@ -103,9 +117,7 @@ export default function App({
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState("");
-  const [recordVisited, setRecordVisited] = useState(false);
   const openRecord = () => {
-    setRecordVisited(true);
     setView("record");
   };
   const [paymentBusyId, setPaymentBusyId] = useState("");
@@ -249,6 +261,7 @@ export default function App({
       ? "Record a sale, expense, payment, or transfer to get started."
       : "Your transactions will appear here when connected.",
   };
+  if (!matchedView) return <Navigate to={pagePaths.overview} replace />;
   return (
     <div className="h-dvh overflow-hidden">
       <aside className="fixed inset-y-0 left-0 z-10 hidden w-52 flex-col border-r border-line bg-canvas px-3 py-7 md:flex lg:w-57">
@@ -262,25 +275,24 @@ export default function App({
           />
           munim
         </div>
-        <button
-          type="button"
+        <p className="mt-3 truncate px-3 text-xs text-muted" title={preferences.shopName}>{preferences.shopName}</p>
+        <Link
+          to={pagePaths.record}
           className={`${primaryClass} mt-7 w-full`}
           aria-label={t("Record Transaction")}
           aria-current={view === "record" ? "page" : undefined}
           onPointerEnter={() => void loadRecord()}
           onFocus={() => void loadRecord()}
-          onClick={openRecord}
         >
           <Plus size={16} />
           <span>{t("Record Transaction")}</span>
-        </button>
+        </Link>
         <nav className="mt-6 grid gap-1" aria-label={t("Main Navigation")}>
           {navigation.map((item) => (
-            <button
-              type="button"
+            <Link
+              to={pagePaths[item.id]}
               key={item.id}
               aria-current={view === item.id ? "page" : undefined}
-              onClick={() => setView(item.id)}
               className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 py-3 text-left text-sm transition-colors motion-reduce:transition-none ${view === item.id ? "bg-fg/10 text-fg" : "text-muted hover:bg-soft hover:text-fg"}`}
             >
               <span
@@ -296,19 +308,18 @@ export default function App({
                   {summary.transactionCount}
                 </span>
               )}
-            </button>
+            </Link>
           ))}
         </nav>
         <div className="mt-auto border-t border-line pt-3">
-          <button
-            type="button"
+          <Link
+            to={pagePaths.settings}
             aria-current={view === "settings" ? "page" : undefined}
-            onClick={() => setView("settings")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm ${view === "settings" ? "bg-soft text-fg" : "text-muted hover:bg-soft hover:text-fg"}`}
           >
             <Settings size={20} strokeWidth={1.6} />
             {t("Settings")}
-          </button>
+          </Link>
           <button
             type="button"
             className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-xs text-muted hover:bg-soft hover:text-fg"
@@ -362,7 +373,7 @@ export default function App({
             </div>
           )}
           <Suspense fallback={<LoadingRows />}>
-            {view === "memory" ? (
+            {view === "history" ? <HistoryView /> : view === "memory" ? (
               <MemoryView configured={health?.meko === "configured"} />
             ) : view === "transactions" ? (
               <TransactionsView {...listProps} />
@@ -383,7 +394,7 @@ export default function App({
                 <header className="flex shrink-0 items-center justify-between gap-4">
                   <div>
                     <h1 className={headingClass}>
-                      {t("Your Business, at a Glance")}
+                      {t("{shop}, at a Glance", {shop: preferences.shopName})}
                     </h1>
                     <p className="mt-2 hidden text-xs text-muted md:block">
                       {t(
@@ -499,30 +510,36 @@ export default function App({
                     ))}
                   </div>
                 </section>
-                <section
-                  className={`${panelClass} flex min-h-0 flex-1 flex-col overflow-hidden`}
-                >
-                  <header className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
-                    <h2 className="text-sm">{t("Recent Transactions")}</h2>
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 text-[11px] text-muted hover:text-fg"
-                      onClick={() => setView("transactions")}
-                    >
-                      {t("View All")}
-                      <ArrowUpRight size={14} />
-                    </button>
-                  </header>
-                  <TransactionList
-                    {...listProps}
-                    transactions={transactions.slice(0, 6)}
+                <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(220px,0.85fr)] lg:grid-rows-1">
+                  <section
+                    className={`${panelClass} flex min-h-0 flex-col overflow-hidden`}
+                  >
+                    <header className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
+                      <h2 className="text-sm">{t("Recent Transactions")}</h2>
+                      <Link
+                        to={pagePaths.transactions}
+                        className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-[11px] text-muted hover:text-fg"
+                      >
+                        {t("View All")}
+                        <ArrowUpRight size={14} />
+                      </Link>
+                    </header>
+                    <TransactionList
+                      {...listProps}
+                      transactions={transactions.slice(0, 6)}
+                    />
+                  </section>
+                  <OverviewPreviews
+                    memoryConfigured={health?.meko === "configured"}
+                    ledgerChecked={health !== null || Boolean(apiError)}
+                    ledgerConnected={databaseConnected}
                   />
-                </section>
+                </div>
               </>
             ) : null}
           </Suspense>
-          {recordVisited && (
-            <div className={view === "record" ? "min-h-0 flex-1" : "hidden"}>
+          {view === "record" && (
+            <div className="min-h-0 flex-1">
               <Suspense fallback={<LoadingRows />}>
                 <RecordView
                   preferences={preferences}
@@ -539,12 +556,11 @@ export default function App({
         className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-line bg-canvas px-2 pt-2 pb-[max(10px,env(safe-area-inset-bottom))] md:hidden"
       >
         {navigation.map((item) => (
-          <button
+          <Link
             key={item.id}
-            type="button"
+            to={pagePaths[item.id]}
             aria-current={view === item.id ? "page" : undefined}
             className={`grid justify-items-center gap-1 py-1.5 text-[10px] ${view === item.id ? "text-fg" : "text-muted"}`}
-            onClick={() => setView(item.id)}
           >
             <item.Icon
               size={18}
@@ -555,31 +571,29 @@ export default function App({
               ? t("Memory")
               : item.id === "transactions"
                 ? t("Ledger")
-                : item.label}
-          </button>
+                : t(item.label)}
+          </Link>
         ))}
-        <button
-          type="button"
+        <Link
+          to={pagePaths.record}
           aria-label={t("Record Transaction")}
           aria-current={view === "record" ? "page" : undefined}
           onPointerEnter={() => void loadRecord()}
           onFocus={() => void loadRecord()}
-          onClick={openRecord}
           className="grid justify-items-center gap-1 py-1.5 text-[10px] text-fg"
         >
           <Plus size={18} strokeWidth={1.5} />
           {t("Record")}
-        </button>
-        <button
-          type="button"
+        </Link>
+        <Link
+          to={pagePaths.settings}
           aria-label={t("Settings")}
           aria-current={view === "settings" ? "page" : undefined}
-          onClick={() => setView("settings")}
           className={`grid justify-items-center gap-1 py-1.5 text-[10px] ${view === "settings" ? "text-fg" : "text-muted"}`}
         >
           <Settings size={18} strokeWidth={1.5} />
           {t("Settings")}
-        </button>
+        </Link>
       </nav>
       {toast && (
         <div

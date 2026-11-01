@@ -76,7 +76,7 @@ export default function AuthGate() {
             try {
               const result = await authClient.signIn.social({
                 provider: "google",
-                callbackURL: window.location.origin,
+                callbackURL: window.location.href,
               });
               if (result.error)
                 throw new Error(result.error.message || t("Sign-in failed."));
