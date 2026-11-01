@@ -58,6 +58,7 @@ try {
   await pool.query(
     `ALTER TABLE munim_memory_scopes ADD COLUMN IF NOT EXISTS provider_conversation_id text`,
   );
+  await pool.query(`ALTER TABLE munim_memory_scopes ADD COLUMN IF NOT EXISTS recall_revision integer NOT NULL DEFAULT 0`);
   await pool.query(`CREATE TABLE IF NOT EXISTS munim_memory_captures (
     request_id uuid PRIMARY KEY, business_id text NOT NULL, conversation_id uuid NOT NULL,
     revision integer NOT NULL, input text NOT NULL, output text NOT NULL,
@@ -68,6 +69,7 @@ try {
   await pool.query(
     `ALTER TABLE munim_memory_captures ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now()`,
   );
+  await pool.query(`ALTER TABLE munim_memory_captures ADD COLUMN IF NOT EXISTS capture_kind text NOT NULL DEFAULT 'conversation'`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS munim_memory_captures_retry_idx ON munim_memory_captures(status,retry_at)`,
   );

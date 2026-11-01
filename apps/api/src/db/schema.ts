@@ -169,6 +169,7 @@ export const memoryScopes = pgTable("munim_memory_scopes", {
   name: text("name").notNull().unique(),
   datapackId: text("datapack_id"),
   providerConversationId: text("provider_conversation_id"),
+  recallRevision: integer("recall_revision").notNull().default(0),
   status: text("status").notNull().default("pending"),
   attempts: integer("attempts").notNull().default(0),
   leaseToken: text("lease_token"),
@@ -186,6 +187,7 @@ export const memoryCaptures = pgTable(
     revision: integer("revision").notNull(),
     input: text("input").notNull(),
     output: text("output").notNull(),
+    captureKind: text("capture_kind").notNull().default("conversation"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

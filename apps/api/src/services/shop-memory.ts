@@ -27,6 +27,9 @@ type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 const objectSchema = z.record(z.string(), z.unknown());
 const idSchema = z.string().min(1).max(200);
 const MAX_ATTEMPTS = 5;
+const recentCache = new Map<string, { expires: number; result: unknown }>();
+let memoryGeneration = 0;
+function invalidateRecall() { memoryGeneration++; recentCache.clear(); }
 
 function object(value: unknown) {
   return objectSchema.parse(value);
@@ -253,7 +256,10 @@ export async function recallShopContext({
       datapack_id: scope.datapackId,
       agent_id: memoryAgentId,
     };
-    const result = await callMekoTool(
+    const cacheKey = JSON.stringify([businessId, conversationId, scope.recallRevision]);
+    const cached = recentCache.get(cacheKey);
+    const generation = memoryGeneration;
+    const result = retrieval === "recent" && cached && cached.expires > Date.now() ? cached.result : await callMekoTool(
       retrieval === "recent" ? "memory_get_all" : "context_search",
       retrieval === "recent"
         ? args
@@ -265,6 +271,10 @@ export async function recallShopContext({
           },
       deadline,
     );
+    if (retrieval === "recent" && generation === memoryGeneration) {
+      if (recentCache.size >= 100) recentCache.delete(recentCache.keys().next().value ?? "");
+      recentCache.set(cacheKey, { result, expires: cached && cached.expires > Date.now() ? cached.expires : Date.now() + 60_000 });
+    }
     const facts =
       retrieval === "recent"
         ? recentFacts(result, query)
@@ -295,6 +305,7 @@ export async function enqueueFinanceCapture(
     input,
     output,
     requestId,
+    convention = false,
   }: {
     businessId: string;
     conversationId: string;
@@ -302,6 +313,7 @@ export async function enqueueFinanceCapture(
     input: string;
     output: string;
     requestId: string;
+    convention?: boolean;
   },
 ): Promise<void> {
   if (!isMekoConfigured() || process.env.MUNIM_MEMORY_ENABLED === "false")
@@ -312,7 +324,7 @@ export async function enqueueFinanceCapture(
     .onConflictDoNothing();
   await tx
     .insert(memoryCaptures)
-    .values({ businessId, conversationId, revision, input, output, requestId })
+    .values({ businessId, conversationId, revision, input, output, requestId, captureKind: convention ? "convention" : "conversation" })
     .onConflictDoNothing();
 }
 export async function getMemoryStatus(businessId: string) {
@@ -323,6 +335,7 @@ export async function getMemoryStatus(businessId: string) {
       status: "not_configured",
       pendingCaptures: 0,
       failedCaptures: 0,
+      deliveredCaptures: 0,
     };
   if (process.env.MUNIM_MEMORY_ENABLED === "false")
     return {
@@ -330,6 +343,7 @@ export async function getMemoryStatus(businessId: string) {
       status: "disabled",
       pendingCaptures: 0,
       failedCaptures: 0,
+      deliveredCaptures: 0,
     };
   await ensureShopMemoryScope(businessId);
   const [scope] = await db
@@ -342,7 +356,7 @@ export async function getMemoryStatus(businessId: string) {
       count: sql<number>`count(*)::int`,
     })
     .from(memoryCaptures)
-    .where(eq(memoryCaptures.businessId, businessId))
+    .where(and(eq(memoryCaptures.businessId, businessId), sql`${memoryCaptures.createdAt} >= now()-interval '7 days'`))
     .groupBy(memoryCaptures.status);
   return {
     configured: true,
@@ -350,6 +364,7 @@ export async function getMemoryStatus(businessId: string) {
     pendingCaptures: counts
       .filter((row) => row.status === "pending" || row.status === "processing")
       .reduce((sum, row) => sum + row.count, 0),
+    deliveredCaptures: counts.find(row => row.status === "done")?.count ?? 0,
     failedCaptures: counts.find((row) => row.status === "failed")?.count ?? 0,
   };
 }
@@ -431,11 +446,12 @@ async function captureOne() {
   if (!pool) return;
   const lease = randomUUID();
   const claimed = await pool.query(
-    `UPDATE munim_memory_captures SET status='processing',lease_token=$1,lease_until=now()+interval '60 seconds',attempts=attempts+1 WHERE request_id=(SELECT c.request_id FROM munim_memory_captures c JOIN munim_memory_scopes s ON s.business_id=c.business_id AND s.status='ready' WHERE c.status IN ('pending','processing') AND c.attempts<$2 AND c.retry_at<=now() AND (c.lease_until IS NULL OR c.lease_until<now()) ORDER BY c.retry_at LIMIT 1 FOR UPDATE OF c SKIP LOCKED) RETURNING request_id,business_id,conversation_id,input,output,attempts`,
+    `UPDATE munim_memory_captures SET status='processing',lease_token=$1,lease_until=now()+interval '60 seconds',attempts=attempts+1 WHERE request_id=(SELECT c.request_id FROM munim_memory_captures c JOIN munim_memory_scopes s ON s.business_id=c.business_id AND s.status='ready' WHERE c.status IN ('pending','processing') AND c.attempts<$2 AND c.retry_at<=now() AND (c.lease_until IS NULL OR c.lease_until<now()) AND NOT (c.capture_kind='convention' AND c.status='processing') ORDER BY c.retry_at LIMIT 1 FOR UPDATE OF c SKIP LOCKED) RETURNING request_id,business_id,conversation_id,input,output,attempts,capture_kind`,
     [lease, MAX_ATTEMPTS],
   );
   const row = z
     .object({
+      capture_kind: z.enum(["conversation", "convention"]),
       request_id: z.string(),
       business_id: z.string(),
       conversation_id: z.string(),
@@ -455,14 +471,12 @@ async function captureOne() {
       signal,
     );
     await callMekoTool(
-      "conversation_add_message",
+      row.capture_kind === "convention" ? "memory_add" : "conversation_add_message",
       {
         conversation_id: trace,
         datapack_id: scope.datapackId,
         agent_id: memoryAgentId,
-        input: row.input,
-        output: row.output,
-        seed: row.request_id,
+        ...(row.capture_kind === "convention" ? { text: row.input, run_id: row.request_id } : { input: row.input, output: row.output, seed: row.request_id }),
         metadata: JSON.stringify({
           source: "munim-finance",
           request_id: row.request_id,
@@ -470,6 +484,8 @@ async function captureOne() {
       },
       signal,
     );
+    invalidateRecall();
+    await pool.query("UPDATE munim_memory_scopes SET recall_revision=recall_revision+1 WHERE business_id=$1", [row.business_id]);
     await pool.query(
       `UPDATE munim_memory_captures SET status='done',input='',output='',lease_token=NULL,lease_until=NULL WHERE request_id=$1 AND lease_token=$2`,
       [row.request_id, lease],
@@ -478,7 +494,7 @@ async function captureOne() {
     await pool.query(
       `UPDATE munim_memory_captures SET status=$1,lease_token=NULL,lease_until=NULL,retry_at=now()+interval '30 seconds' WHERE request_id=$2 AND lease_token=$3`,
       [
-        row.attempts >= MAX_ATTEMPTS ? "failed" : "pending",
+        row.capture_kind === "convention" || row.attempts >= MAX_ATTEMPTS ? "failed" : "pending",
         row.request_id,
         lease,
       ],
@@ -506,7 +522,7 @@ export function startMemoryWorker(): () => Promise<void> {
         `DELETE FROM munim_memory_captures WHERE created_at<now()-interval '7 days' AND (lease_until IS NULL OR lease_until<now())`,
       );
       await pool?.query(
-        `UPDATE munim_memory_captures SET status='failed',lease_token=NULL,lease_until=NULL WHERE status='processing' AND attempts>=5 AND lease_until<now()`,
+        `UPDATE munim_memory_captures SET status='failed',lease_token=NULL,lease_until=NULL WHERE status='processing' AND (attempts>=5 OR capture_kind='convention') AND lease_until<now()`,
       );
       await pool?.query(
         `UPDATE munim_memory_scopes SET status='failed',lease_token=NULL,lease_until=NULL WHERE status='pending' AND attempts>=5 AND lease_until<now()`,
@@ -573,6 +589,8 @@ export async function addShopMemory(businessId: string, text: string) {
     },
     signal,
   );
+  invalidateRecall();
+  await getDatabase()?.update(memoryScopes).set({ recallRevision: sql`${memoryScopes.recallRevision}+1` }).where(eq(memoryScopes.businessId, businessId));
   return { saved: true };
 }
 export async function changeShopMemory({
@@ -633,7 +651,9 @@ export async function changeShopMemory({
     text === undefined ? args : { ...args, text },
     signal,
   );
+  invalidateRecall();
   await db.transaction(async (tx) => {
+    await tx.update(memoryScopes).set({ recallRevision: sql`${memoryScopes.recallRevision}+1` }).where(eq(memoryScopes.businessId, businessId));
     const rows = await tx
       .select()
       .from(conversations)
