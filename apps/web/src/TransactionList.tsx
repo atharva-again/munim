@@ -4,15 +4,12 @@ import {
   ArrowLeftRight,
   ArrowUpRight,
   ClipboardList,
-  ExternalLink,
-  LoaderCircle,
 } from "lucide-react";
 import { recordTextFor, transactionKindLabels, type Transaction } from "@munim/contracts";
 import { formatDate, formatRupees } from "./api";
 import {
   EmptyState,
   LoadingRows,
-  buttonClass,
   StatusDot,
   type StatusTone,
 } from "./ui";
@@ -28,18 +25,12 @@ const statusPresentation = {
 
 export type TransactionListProps = {
   transactions: Transaction[];
-  paymentEnabled: boolean;
-  onPaymentLink: (transaction: Transaction) => void;
-  busyId: string;
   loading?: boolean;
   emptyTitle?: string;
   emptyDetail?: string;
 };
 export function TransactionList({
   transactions,
-  paymentEnabled,
-  onPaymentLink,
-  busyId,
   loading,
   emptyTitle = "No Transactions Yet",
   emptyDetail = "Record a sale, expense, payment, or transfer to get started.",
@@ -84,9 +75,6 @@ export function TransactionList({
             >
               {t("Amount")}
             </th>
-            <th scope="col" className="w-10 bg-soft pr-4">
-              <span className="sr-only">{t("Payment Action")}</span>
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -99,7 +87,6 @@ export function TransactionList({
               : incoming
                 ? ArrowDownLeft
                 : ArrowUpRight;
-            const busy = busyId === transaction.id;
             const status = statusPresentation[transaction.settlementStatus];
             return (
               <tr
@@ -149,45 +136,6 @@ export function TransactionList({
                 <td className="px-5 py-4 text-right text-[13px] whitespace-nowrap tabular-nums">
                   {incoming ? "+" : transfer ? "" : "−"}
                   {formatRupees(transaction.amountPaise)}
-                </td>
-                <td className="pr-4">
-                  {transaction.paymentLink ? (
-                    <a
-                      className={`${buttonClass} px-2`}
-                      href={transaction.paymentLink.shortUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={t("Open Payment Link for {description}", {
-                        description: transaction.description,
-                      })}
-                    >
-                      <ExternalLink size={14} />
-                    </a>
-                  ) : transaction.settlementStatus !== "settled" && incoming ? (
-                    <button
-                      type="button"
-                      className={`${buttonClass} px-2`}
-                      disabled={!paymentEnabled || busy}
-                      title={
-                        paymentEnabled
-                          ? t("Create Test Payment Link")
-                          : t("Payment Links Unavailable")
-                      }
-                      aria-label={t("Request Payment for {description}", {
-                        description: transaction.description,
-                      })}
-                      onClick={() => onPaymentLink(transaction)}
-                    >
-                      {busy ? (
-                        <LoaderCircle
-                          size={14}
-                          className="motion-safe:animate-spin"
-                        />
-                      ) : (
-                        <ExternalLink size={14} />
-                      )}
-                    </button>
-                  ) : null}
                 </td>
               </tr>
             );

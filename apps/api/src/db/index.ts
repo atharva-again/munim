@@ -28,6 +28,3 @@ export function getDatabase(): NodePgDatabase<typeof schema> | null {
   database ??= drizzle(currentPool, { schema });
   return database;
 }
-
-export const businessId = () => process.env.MUNIM_BUSINESS_ID ?? "demo-business";
-

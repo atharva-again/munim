@@ -330,19 +330,9 @@ const hindi: Readonly<Record<string, string>> = {
   Transaction: "लेन-देन",
   Amount: "रकम",
   Status: "स्थिति",
-  "Payment Action": "भुगतान का विकल्प",
   "Business transactions and settlement status": "कारोबार के लेन-देन और भुगतान",
   Open: "बाकी",
   "Partially Settled": "कुछ भुगतान हुआ",
-  "Payment Links Unavailable": "भुगतान लिंक उपलब्ध नहीं",
-  "Open Payment Link for {description}": "{description} का भुगतान लिंक खोलें",
-  "Request Payment for {description}": "{description} के भुगतान का अनुरोध करें",
-  "Create Test Payment Link": "परीक्षण भुगतान लिंक बनाएँ",
-  "Razorpay test link copied to clipboard.": "परीक्षण भुगतान लिंक कॉपी हो गया।",
-  "Razorpay test link created. Copy it to share with the customer.":
-    "परीक्षण लिंक बन गया। इसे कॉपी करके भेज सकते हैं।",
-  "Test Payment Link": "परीक्षण भुगतान लिंक",
-  "Open Test Payment Link": "परीक्षण भुगतान लिंक खोलें",
   "Know what came in, what went out, and what still needs attention.":
     "कितने पैसे आए, कितने गए और कहाँ रकम बाकी है।",
   "7 Days": "7 दिन",
@@ -435,7 +425,6 @@ const hindi: Readonly<Record<string, string>> = {
   "No context returned.": "कोई बात नहीं मिली।",
   "Could not complete that request.": "यह काम पूरा नहीं हुआ। फिर कोशिश करें।",
   "Could not connect voice.": "बात शुरू नहीं हो पाई। फिर कोशिश करें।",
-  "Could not create a payment link.": "भुगतान लिंक नहीं बन पाया।",
   "Could not load insights.": "हिसाब की जानकारी नहीं खुल पाई।",
   "Could not load your preferences.": "आपकी पसंद नहीं खुल पाई। फिर कोशिश करें।",
   "Could not reach Munim. Please try again.":

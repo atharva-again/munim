@@ -19,11 +19,6 @@ const healthSchema = z.object({
   database: z.enum(["connected", "not_configured", "unreachable"]),
   meko: z.enum(["configured", "not_configured"]),
   speechToText: z.enum(["provider_selected", "not_configured"]),
-  razorpay: z.enum([
-    "test_keys_configured",
-    "live_keys_rejected",
-    "not_configured",
-  ]),
 });
 export type ApiHealth = z.infer<typeof healthSchema>;
 const memorySearchSchema = z.object({ result: memoryContextSchema });
@@ -50,12 +45,6 @@ export const api = {
   summary: () => request("/api/ledger/summary", ledgerSummarySchema),
   transactions: () =>
     request("/api/transactions?limit=100", z.array(transactionSchema)),
-  createPaymentLink: (transactionId: string) =>
-    request(
-      `/api/payment-links/${transactionId}`,
-      z.object({ shortUrl: z.string().url(), status: z.string() }),
-      { method: "POST" },
-    ),
   recentMemories: (signal?: AbortSignal) => request("/api/memory/recent", z.object({
     result: memoryContextSchema.extend({ facts: z.array(memoryFactSchema).max(20) }),
   }), { signal }),

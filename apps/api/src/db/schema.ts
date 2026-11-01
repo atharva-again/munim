@@ -31,10 +31,6 @@ export const settlementStatusEnum = pgEnum(
   settlementStatuses,
 );
 export const paymentMethodEnum = pgEnum("munim_payment_method", paymentMethods);
-export const settlementSourceEnum = pgEnum("munim_settlement_source", [
-  "manual",
-  "razorpay",
-]);
 
 export const transactions = pgTable(
   "munim_transactions",
@@ -79,9 +75,6 @@ export const settlements = pgTable(
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
     direction: transactionDirectionEnum("direction").notNull(),
     method: paymentMethodEnum("method"),
-    source: settlementSourceEnum("source").notNull().default("manual"),
-    providerReference: text("provider_reference"),
-    providerEventId: text("provider_event_id"),
     occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -94,46 +87,8 @@ export const settlements = pgTable(
       table.businessId,
       table.occurredAt,
     ),
-    uniqueIndex("munim_settlements_provider_event_uidx").on(
-      table.providerEventId,
-    ),
   ],
 );
-
-export const paymentRequests = pgTable(
-  "munim_payment_requests",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    businessId: text("business_id").notNull(),
-    transactionId: uuid("transaction_id")
-      .notNull()
-      .references(() => transactions.id),
-    provider: text("provider").notNull().default("razorpay"),
-    providerLinkId: text("provider_link_id").notNull(),
-    shortUrl: text("short_url").notNull(),
-    status: text("status").notNull().default("created"),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("munim_payment_requests_link_uidx").on(table.providerLinkId),
-    uniqueIndex("munim_payment_requests_transaction_uidx").on(
-      table.transactionId,
-    ),
-  ],
-);
-
-export const webhookEvents = pgTable("munim_webhook_events", {
-  id: text("id").primaryKey(),
-  provider: text("provider").notNull(),
-  receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .defaultNow(),
-});
 
 export const conversations = pgTable("munim_conversations", {
   id: uuid("id").primaryKey(),

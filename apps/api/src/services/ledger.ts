@@ -35,7 +35,6 @@ export async function insertTransaction(
       amountPaise: paid,
       direction: input.direction,
       method: input.paymentMethod,
-      source: "manual",
       occurredAt,
     });
   }

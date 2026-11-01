@@ -96,6 +96,13 @@ try {
   } finally {
     client.release();
   }
+  await pool.query(`DROP TABLE IF EXISTS munim_payment_requests`);
+  await pool.query(`DROP TABLE IF EXISTS munim_webhook_events`);
+  await pool.query(`ALTER TABLE IF EXISTS munim_settlements
+    DROP COLUMN IF EXISTS source,
+    DROP COLUMN IF EXISTS provider_reference,
+    DROP COLUMN IF EXISTS provider_event_id`);
+  await pool.query(`DROP TYPE IF EXISTS munim_settlement_source`);
   console.info("Auth, conversation and preference tables are ready.");
 } finally {
   await pool.end();

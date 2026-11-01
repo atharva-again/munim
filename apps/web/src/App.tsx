@@ -120,7 +120,6 @@ export default function App({
   const openRecord = () => {
     setView("record");
   };
-  const [paymentBusyId, setPaymentBusyId] = useState("");
   const [toast, setToast] = useState<{
     message: string;
     tone: "success" | "error";
@@ -214,45 +213,9 @@ export default function App({
     await refresh(true);
   };
 
-  const createPaymentLink = async (transaction: Transaction) => {
-    setPaymentBusyId(transaction.id);
-    try {
-      const link = await api.createPaymentLink(transaction.id);
-      setToast({
-        message:
-          "Razorpay test link created. Copy it to share with the customer.",
-        tone: "success",
-      });
-      await pendingRefresh.current;
-      await refresh(true);
-      try {
-        await navigator.clipboard.writeText(link.shortUrl);
-        setToast({
-          message: "Razorpay test link copied to clipboard.",
-          tone: "success",
-        });
-      } catch {
-        window.open(link.shortUrl, "_blank", "noopener,noreferrer");
-      }
-    } catch (error) {
-      setToast({
-        message:
-          error instanceof Error
-            ? error.message
-            : "Could not create a payment link.",
-        tone: "error",
-      });
-    } finally {
-      setPaymentBusyId("");
-    }
-  };
-
   const databaseConnected = health?.database === "connected";
   const listProps = {
     transactions,
-    paymentEnabled: health?.razorpay === "test_keys_configured",
-    onPaymentLink: createPaymentLink,
-    busyId: paymentBusyId,
     loading,
     emptyTitle: databaseConnected
       ? "No Transactions Yet"
