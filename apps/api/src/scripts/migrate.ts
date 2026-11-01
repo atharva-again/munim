@@ -35,6 +35,17 @@ try {
   await pool.query(
     `ALTER TABLE munim_preferences ADD COLUMN IF NOT EXISTS approval_mode text CHECK (approval_mode IN ('approval', 'autonomous'))`,
   );
+  await pool.query(`ALTER TABLE munim_preferences ADD COLUMN IF NOT EXISTS shop_name text CHECK (char_length(btrim(shop_name)) BETWEEN 1 AND 80)`);
+  await pool.query(`ALTER TABLE IF EXISTS munim_transactions ADD COLUMN IF NOT EXISTS display_text jsonb`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS munim_conversation_history (
+    id uuid PRIMARY KEY, business_id text NOT NULL, messages jsonb NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS munim_conversation_history_account_updated_idx ON munim_conversation_history(business_id,updated_at)`);
+  await pool.query(`INSERT INTO munim_conversation_history(id,business_id,messages,updated_at)
+    SELECT id,business_id,state->'messages',expires_at-interval '12 hours'
+    FROM munim_conversations WHERE jsonb_array_length(coalesce(state->'messages','[]'::jsonb))>0
+    ON CONFLICT(id) DO NOTHING`);
   await pool.query(
     `ALTER TABLE IF EXISTS munim_transactions ADD COLUMN IF NOT EXISTS approval_mode text NOT NULL DEFAULT 'approval' CHECK (approval_mode IN ('approval', 'autonomous'))`,
   );

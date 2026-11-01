@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   paymentMethods,
+  type RecordText,
   settlementStatuses,
   transactionDirections,
   transactionKinds,
@@ -44,6 +45,7 @@ export const transactions = pgTable(
     direction: transactionDirectionEnum("direction").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
     description: text("description").notNull(),
+    displayText: jsonb("display_text").$type<RecordText>(),
     counterparty: text("counterparty").notNull().default(""),
     paymentMethod: paymentMethodEnum("payment_method"),
     settlementStatus: settlementStatusEnum("settlement_status")
@@ -147,6 +149,7 @@ export const conversations = pgTable("munim_conversations", {
 });
 
 export const userPreferences = pgTable("munim_preferences", {
+  shopName: text("shop_name"),
   businessId: text("business_id").primaryKey(),
   language: text("language").notNull(),
   approvalMode: text("approval_mode"),
@@ -154,6 +157,12 @@ export const userPreferences = pgTable("munim_preferences", {
     .notNull()
     .defaultNow(),
 });
+export const conversationHistory = pgTable("munim_conversation_history", {
+  id: uuid("id").primaryKey(),
+  businessId: text("business_id").notNull(),
+  messages: jsonb("messages").notNull(),
+  updatedAt: timestamp("updated_at", {withTimezone:true,mode:"date"}).notNull().defaultNow(),
+}, (table) => [index("munim_conversation_history_account_updated_idx").on(table.businessId,table.updatedAt)]);
 
 export const memoryScopes = pgTable("munim_memory_scopes", {
   businessId: text("business_id").primaryKey(),

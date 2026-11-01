@@ -5,11 +5,13 @@ export type PreferredLanguage = z.infer<typeof preferredLanguageSchema>;
 export const approvalModeSchema = z.enum(["approval", "autonomous"]);
 export type ApprovalMode = z.infer<typeof approvalModeSchema>;
 export const preferencesSchema = z.object({
+  shopName: z.string().trim().min(1).max(80).nullable().default(null),
   language: preferredLanguageSchema.nullable(),
   approvalMode: approvalModeSchema.nullable(),
 });
 export type Preferences = z.infer<typeof preferencesSchema>;
 export const savePreferencesSchema = z.object({
+  shopName: z.string().trim().min(1).max(80),
   language: preferredLanguageSchema,
   approvalMode: approvalModeSchema,
 });
@@ -24,8 +26,8 @@ export const languageLabels: Record<PreferredLanguage, string> = {
 };
 export function greetingFor(language: PreferredLanguage): string {
   return {
-    en: "Hello, I'm Munim. Tell me what happened.",
-    hi: "नमस्ते, मैं मुनीम हूँ। बताइए, क्या लेन-देन हुआ?",
+    en: "What would you like to record?",
+    hi: "क्या हिसाब लिखना है?",
   }[language];
 }
 
@@ -49,7 +51,14 @@ export const transactionDirectionSchema = z.enum(transactionDirections);
 export const settlementStatusSchema = z.enum(settlementStatuses);
 export const paymentMethodSchema = z.enum(paymentMethods);
 
+const recordTextFields = z.object({ description: z.string().trim().max(500), counterparty: z.string().trim().max(160) });
+export const recordTextSchema = z.object({ en: recordTextFields, hi: recordTextFields });
+export type RecordText = z.infer<typeof recordTextSchema>;
+export function recordTextFor(record: {description?: string; counterparty?: string; displayText?: RecordText | null}, language: PreferredLanguage) {
+  return record.displayText?.[language] ?? {description:record.description ?? "",counterparty:record.counterparty ?? ""};
+}
 export const createTransactionSchema = z.object({
+  displayText: recordTextSchema.nullish(),
   kind: transactionKindSchema,
   direction: transactionDirectionSchema,
   amountPaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -130,6 +139,12 @@ export const conversationMessageSchema = z.object({
   channel: z.enum(["voice", "text", "form"]),
   at: z.string(),
 });
+export const conversationHistorySchema = z.object({
+  id: z.string().uuid(),
+  updatedAt: z.string().datetime(),
+  messages: z.array(conversationMessageSchema),
+});
+export type ConversationHistory = z.infer<typeof conversationHistorySchema>;
 const storedLanguageSchema = z.union([
   preferredLanguageSchema,
   z.literal("hinglish").transform((): PreferredLanguage => "hi"),
@@ -294,6 +309,7 @@ export const insightsSchema = z.object({
         direction: z.enum(["inflow", "outflow"]),
         description: z.string(),
         counterparty: z.string(),
+        displayText: recordTextSchema.nullish(),
         amountPaise: insightMoneySchema,
         paidPaise: insightMoneySchema,
         remainingPaise: insightMoneySchema,
