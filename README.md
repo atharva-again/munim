@@ -6,7 +6,6 @@
 
 <p align="center">A voice-first financial assistant for Indian shopkeepers.</p>
 
-[Public GitHub repository](https://github.com/atharva-again/munim)
 
 ## Problem statement
 
