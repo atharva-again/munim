@@ -1,3 +1,4 @@
+import { PeopleDues } from "./PeopleDues";
 import { localizedError } from "./translations";
 import { useI18n } from "./i18n";
 import { useEffect, useState } from "react";
@@ -305,6 +306,7 @@ export default function InsightsView({
               )}
             </p>
           </section>
+          <PeopleDues version={version} />
           <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)]">
             <section
               className={`${panelClass} min-w-0`}

@@ -315,3 +315,21 @@ export const insightsSchema = z.object({
 });
 export type InsightQuery = z.infer<typeof insightQuerySchema>;
 export type Insights = z.infer<typeof insightsSchema>;
+
+export const peopleDuesQuerySchema = z.object({
+  direction: z.enum(["inflow", "outflow"]).default("inflow"),
+  page: z.coerce.number().int().min(0).max(10000).default(0),
+});
+export const peopleDuesSchema = z.object({
+  asOf: z.string().datetime(),
+  totalRemainingPaise: insightMoneySchema,
+  total: insightCountSchema,
+  page: insightCountSchema,
+  items: z.array(z.object({
+    counterparty: z.string(),
+    displayText: recordTextSchema.nullish(),
+    remainingPaise: insightMoneySchema,
+    entryCount: insightCountSchema,
+    oldestAt: z.string().datetime({ offset: true }),
+  })).max(20),
+});

@@ -3,6 +3,8 @@ import { getAuth, type ApiEnv } from "./auth.js";
 import { preferenceRoutes } from "./preferences.js";
 import { memoryRoutes } from "./memory.js";
 import { historyRoutes } from "./history.js";
+import { peopleDuesQuerySchema } from "@munim/contracts";
+import { readPeopleDues } from "./services/people-dues.js";
 import { readInsights } from "./services/insights.js";
 import { conversationRoutes } from "./conversations.js";
 import { desc, eq, sql } from "drizzle-orm";
@@ -87,6 +89,13 @@ app.get("/api/health", async (c) => {
   });
 });
 
+app.get("/api/dues/people", async c => {
+  const db = getDatabase();
+  const query = peopleDuesQuerySchema.safeParse(c.req.query());
+  if (!query.success) return c.json({ error: "Choose a valid dues filter." }, 400);
+  if (!db) return c.json({ error: "The ledger is unavailable." }, 503);
+  return c.json(await readPeopleDues(db, c.get("businessId"), query.data));
+});
 app.get("/api/insights", async (c) => {
   const db = getDatabase();
   if (!db) return unavailable(c, "Connect your ledger to view insights.");

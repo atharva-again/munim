@@ -1,5 +1,12 @@
 import type { PreferredLanguage } from "@munim/contracts";
 const hindi: Readonly<Record<string, string>> = {
+  "Dues by Person": "किसका कितना बाकी है",
+  "Across all recorded history. Names are grouped as recorded.": "सभी दर्ज हिसाब से। नाम जैसे लिखे हैं, वैसे ही जोड़े गए हैं।",
+  "Entries": "एंट्रियाँ",
+  "Oldest Entry": "सबसे पुरानी एंट्री",
+  "Remaining": "बाकी रकम",
+  "No outstanding balances in this direction.": "इस तरफ़ कोई रकम बाकी नहीं है।",
+  "Showing {from}–{to} of {total} people": "{total} में से {from}–{to} नाम दिख रहे हैं",
   "See How It Works": "देखें कैसे काम करता है",
   "You Say": "आप कहते हैं",
   "Munim Prepares": "मुनीम हिसाब बनाता है",
