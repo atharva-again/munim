@@ -31,10 +31,12 @@ const modes = [
 ] satisfies { id: Mode; label: string; Icon: typeof Mic }[];
 export default function RecordView({
   visible,
+  capture = false,
   preferences,
   onSaved,
 }: {
   visible: boolean;
+  capture?: boolean;
   preferences: SavedPreferences;
   onSaved: () => Promise<void>;
 }) {
@@ -44,7 +46,7 @@ export default function RecordView({
   const snapshotRef = useRef<Conversation | null>(null);
   const [session, setSession] = useState<RecordingSession | null>(null);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
-  const [mode, setMode] = useState<Mode>("voice");
+  const [mode, setMode] = useState<Mode>(capture ? "voice" : "text");
   const [busy, setBusy] = useState(false),
     [active, setActive] = useState(false);
   const [text, setText] = useState(""),
@@ -86,7 +88,7 @@ export default function RecordView({
     setBusy(true);
     setError("");
     try {
-      const result = await conversations.create();
+      const result = await conversations.create(capture ? "record" : "agent");
       currentRevision.current = 0;
       currentSessionId.current = result.conversation.id;
       setActive(false);
@@ -106,7 +108,7 @@ export default function RecordView({
   useEffect(() => {
     if (!visible || session) return;
     let cancelled = false;
-    const request = (creation.current ??= conversations.create());
+    const request = (creation.current ??= conversations.create(capture ? "record" : "agent"));
     request
       .then((result) => {
         if (!cancelled) {
@@ -255,12 +257,17 @@ export default function RecordView({
     ...chat,
   ].sort((left, right) => left.at - right.at);
   const autonomous = preferences.approvalMode === "autonomous";
+  const showMemoryPanel = Boolean(
+    state &&
+      state.memory.status !== "disabled" &&
+      state.memory.status !== "not_configured",
+  );
   return (
-    <section className="mx-auto grid w-full max-w-300 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_17rem]">
-      <h1 className="sr-only">{t("Record Transaction")}</h1>
-      <div className="rounded-xl border border-line bg-canvas">
+    <section className={`grid h-full min-h-0 w-full flex-1 items-stretch gap-8 ${showMemoryPanel ? "xl:grid-cols-[minmax(0,1fr)_19rem]" : "grid-cols-1"}`}>
+      <h1 className="sr-only">{t("Agent")}</h1>
+      <div className="flex min-h-0 flex-col">
         <div
-          className="flex gap-1 border-b border-line px-5 pt-2 sm:px-7"
+          className="flex shrink-0 gap-1 border-b border-line pt-2"
           role="tablist"
           aria-label={t("Entry Method")}
         >
@@ -289,10 +296,11 @@ export default function RecordView({
               {t(label)}
             </button>
           ))}
-          <Link to="/conversations" className="ml-auto flex items-center px-2 pb-2 text-[11px] text-muted hover:text-fg">{t("Past Conversations")}</Link>
+          <button type="button" className="ml-auto cursor-pointer px-2 pb-2 text-[11px] text-muted hover:text-fg disabled:cursor-not-allowed" disabled={busy || active} onClick={() => void start()}>{t("New Conversation")}</button>
+          <Link to="/conversations" className="flex items-center px-2 pb-2 text-[11px] text-muted hover:text-fg">{t("Past Conversations")}</Link>
         </div>
         <div
-          className="px-5 pb-6 sm:px-7"
+          className="flex min-h-0 flex-1 flex-col pt-2"
           role="tabpanel"
           id="record-panel"
           aria-labelledby={`record-tab-${mode}`}
@@ -330,10 +338,10 @@ export default function RecordView({
             </Suspense>
           )}
           {session && mode === "text" && (
-            <div className="flex flex-col pt-5">
-              <div role="log" aria-label={t("Conversation")} aria-live="polite" className="max-h-[45dvh] min-h-48 space-y-3 overflow-y-auto overscroll-contain px-1 pb-5">
+            <div className="flex min-h-0 flex-1 flex-col pt-5">
+              <div role="log" aria-label={t("Conversation")} aria-live="polite" className="min-h-48 flex-1 space-y-3 overflow-y-auto overscroll-contain px-1 pb-5">
                 {displayedChat.length === 0 && (
-                  <ChatBubble role="assistant" text={t("What would you like to record?")} />
+                  <ChatBubble role="assistant" text={t(capture ? "What would you like to record?" : "Ask about your books, or tell me about a transaction.")} />
                 )}
                 {displayedChat.map((message) => (
                   <ChatBubble key={message.id} role={message.role} text={message.text} at={message.at} />
@@ -342,7 +350,7 @@ export default function RecordView({
                 <div ref={chatEnd} />
               </div>
             <form
-              className="mb-5 rounded-xl border border-line bg-canvas p-3"
+              className="mt-auto border-t border-line pt-4 pb-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!text.trim() || busy || voiceProcessing || state?.phase === "processing" || !session.textConfigured) return;
@@ -366,42 +374,44 @@ export default function RecordView({
                 });
               }}
             >
-              <label className="grid gap-2 text-xs" htmlFor="record-message">
-                <span className="sr-only">{t("Message Munim")}</span>
-                <textarea
-                  id="record-message"
-                  className={`${inputClass} min-h-20 resize-y border-0`}
-                  maxLength={2000}
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(event)=>{if(event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}
-                  placeholder={t(
-                    state?.phase === "review"
-                      ? "Tell me what to change, for example: make the amount ₹550."
-                      : displayedChat.length ? "Type your reply…" : "Tell Munim what happened…",
-                  )}
+              <div className="flex items-end gap-3">
+                <label className="grid min-w-0 flex-1 gap-2 text-xs" htmlFor="record-message">
+                  <span className="sr-only">{t("Message Munim")}</span>
+                  <textarea
+                    id="record-message"
+                    className={`${inputClass} min-h-20 resize-y`}
+                    maxLength={2000}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(event)=>{if(event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}
+                    placeholder={t(
+                      state?.phase === "review"
+                        ? "Tell me what to change, for example: make the amount ₹550."
+                        : displayedChat.length ? "Type your reply…" : "Ask Munim…",
+                    )}
+                    disabled={
+                      busy ||
+                      voiceProcessing ||
+                      state?.phase === "processing" ||
+                      !session.textConfigured
+                    }
+                  />
+                </label>
+                <button
+                  className={`${primaryClass} shrink-0`}
+                  type="submit"
                   disabled={
                     busy ||
                     voiceProcessing ||
                     state?.phase === "processing" ||
+                    !text.trim() ||
                     !session.textConfigured
                   }
-                />
-              </label>
-              <button
-                className={`${primaryClass} mt-3`}
-                type="submit"
-                disabled={
-                  busy ||
-                  voiceProcessing ||
-                  state?.phase === "processing" ||
-                  !text.trim() ||
-                  !session.textConfigured
-                }
-              >
-                <Send size={14} />
-                {busy ? t("Understanding…") : t("Send")}
-              </button>
+                >
+                  <Send size={14} />
+                  {busy ? t("Understanding…") : t("Send")}
+                </button>
+              </div>
               {!session.textConfigured && (
                 <p className="mt-3 text-xs text-muted">
                   {t(
@@ -522,7 +532,7 @@ export default function RecordView({
           )}
         </div>
       </div>
-      {state && (
+      {state && showMemoryPanel && (
         <aside className="order-first min-w-0 xl:order-last xl:sticky xl:top-0" aria-label={t("Shop Context")}>
           <MemoryEvidence
             key={state.id}

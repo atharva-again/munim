@@ -402,7 +402,7 @@ export default defineAgent({
     await send("munim.voice", { id: metadata.id, state: "ready" });
     const greeting = await inVoiceTurn(
       { conversationId: metadata.id, turnId: randomUUID() },
-      () => agent.speak(greetingFor(initialState.language)),
+      () => agent.speak(initialState.phase === "review" && initialState.replyIsReview ? initialState.reply : greetingFor(initialState.language, initialState.purpose)),
     );
     if (
       initialState.phase === "review" &&

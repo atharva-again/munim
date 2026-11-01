@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import {
+  MessageCircle,
   ArrowDownLeft,
   ArrowUpRight,
   BookOpenText,
@@ -51,6 +52,7 @@ const SettingsView = lazy(() => import("./SettingsView"));
 const InsightsView = lazy(() => import("./InsightsView"));
 const HistoryView = lazy(() => import("./HistoryView"));
 type View =
+  | "agent"
   | "overview"
   | "transactions"
   | "insights"
@@ -59,13 +61,14 @@ type View =
   | "settings"
   | "history";
 const pagePaths: Record<View, string> = {
-  overview: "/overview", record: "/record", transactions: "/transactions",
+  agent: "/agent", overview: "/overview", record: "/record", transactions: "/transactions",
   insights: "/insights", memory: "/business-memory", settings: "/settings",
   history: "/conversations",
 };
-const views: View[] = ["overview", "record", "transactions", "insights", "memory", "settings", "history"];
+const views: View[] = ["agent", "overview", "record", "transactions", "insights", "memory", "settings", "history"];
 const navigation = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
+  { id: "agent", label: "Agent", Icon: MessageCircle },
   { id: "transactions", label: "Transactions", Icon: ListOrdered },
   { id: "insights", label: "Insights", Icon: ChartNoAxesCombined },
   { id: "memory", label: "Business Memory", Icon: BookOpenText },
@@ -117,9 +120,8 @@ export default function App({
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState("");
-  const openRecord = () => {
-    setView("record");
-  };
+  const [captureKey, setCaptureKey] = useState(0);
+  const openRecord = () => { setCaptureKey(value => value + 1); navigate("/agent?record=1"); };
   const [toast, setToast] = useState<{
     message: string;
     tone: "success" | "error";
@@ -224,6 +226,7 @@ export default function App({
       ? "Record a sale, expense, payment, or transfer to get started."
       : "Your transactions will appear here when connected.",
   };
+  if (view === "record") return <Navigate to="/agent?record=1" replace />;
   if (!matchedView) return <Navigate to={pagePaths.overview} replace />;
   return (
     <div className="h-dvh overflow-hidden">
@@ -239,17 +242,17 @@ export default function App({
           munim
         </div>
         <p className="mt-3 truncate px-3 text-xs text-muted" title={preferences.shopName}>{preferences.shopName}</p>
-        <Link
-          to={pagePaths.record}
+        <button
+          type="button"
           className={`${primaryClass} mt-7 w-full`}
+          onClick={openRecord}
           aria-label={t("Record Transaction")}
-          aria-current={view === "record" ? "page" : undefined}
           onPointerEnter={() => void loadRecord()}
           onFocus={() => void loadRecord()}
         >
           <Plus size={16} />
           <span>{t("Record Transaction")}</span>
-        </Link>
+        </button>
         <nav className="mt-6 grid gap-1" aria-label={t("Main Navigation")}>
           {navigation.map((item) => (
             <Link
@@ -314,7 +317,7 @@ export default function App({
       <main className="flex h-full flex-col overflow-hidden pb-17 md:ml-52 md:pb-0 lg:ml-57">
         <div
           ref={contentRef}
-          className={`mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col gap-5 px-5 py-5 lg:px-10 ${view === "overview" ? "overflow-hidden gap-[clamp(10px,2dvh,20px)]" : "overflow-y-auto lg:py-8"}`}
+          className={`mx-auto flex min-h-0 w-full flex-1 flex-col ${view === "agent" ? "max-w-none gap-0 overflow-y-auto px-5 py-4 lg:px-10 lg:py-5" : view === "overview" ? "max-w-360 gap-[clamp(10px,2dvh,20px)] overflow-hidden px-5 py-5 lg:px-10" : "max-w-360 gap-5 overflow-y-auto px-5 py-5 lg:px-10 lg:py-8"}`}
         >
           {apiError && (
             <div
@@ -501,12 +504,14 @@ export default function App({
               </>
             ) : null}
           </Suspense>
-          {view === "record" && (
+          {view === "agent" && (
             <div className="min-h-0 flex-1">
               <Suspense fallback={<LoadingRows />}>
                 <RecordView
+                  key={`${captureKey}:${location.search}`}
+                  capture={location.search.includes("record=1")}
                   preferences={preferences}
-                  visible={view === "record"}
+                  visible={view === "agent"}
                   onSaved={transactionSaved}
                 />
               </Suspense>
@@ -516,7 +521,7 @@ export default function App({
       </main>
       <nav
         aria-label={t("Mobile Navigation")}
-        className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-line bg-canvas px-2 pt-2 pb-[max(10px,env(safe-area-inset-bottom))] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-7 border-t border-line bg-canvas px-2 pt-2 pb-[max(10px,env(safe-area-inset-bottom))] md:hidden"
       >
         {navigation.map((item) => (
           <Link
@@ -537,17 +542,17 @@ export default function App({
                 : t(item.label)}
           </Link>
         ))}
-        <Link
-          to={pagePaths.record}
+        <button
+          type="button"
+          onClick={openRecord}
           aria-label={t("Record Transaction")}
-          aria-current={view === "record" ? "page" : undefined}
           onPointerEnter={() => void loadRecord()}
           onFocus={() => void loadRecord()}
-          className="grid justify-items-center gap-1 py-1.5 text-[10px] text-fg"
+          className="grid cursor-pointer justify-items-center gap-1 py-1.5 text-[10px] text-fg"
         >
           <Plus size={18} strokeWidth={1.5} />
           {t("Record")}
-        </Link>
+        </button>
         <Link
           to={pagePaths.settings}
           aria-label={t("Settings")}

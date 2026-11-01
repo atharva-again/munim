@@ -92,7 +92,7 @@ conversationRoutes.onError((error, c) => {
       400,
     );
   if (error instanceof InterpreterError)
-    return c.json({ error: error.message }, 503);
+    return c.json({ error: error.message }, error.status);
   console.error("[conversation]", error);
   return c.json(
     {
@@ -128,12 +128,14 @@ conversationRoutes.post("/", async (c) => {
       { error: "Choose your language and saving preference before recording." },
       409,
     );
+  const { purpose } = z.object({ purpose: z.enum(["agent", "record"]).default("agent") }).parse(await c.req.json());
   const { language, approvalMode } = preferences;
   const id = randomUUID(),
     token = randomBytes(32).toString("base64url");
   const state: Conversation = {
     id,
     entryId: id,
+    purpose,
     language,
     replyLanguage: language,
     approvalMode,
@@ -141,7 +143,7 @@ conversationRoutes.post("/", async (c) => {
     draft: {},
     phase: "collecting",
     messages: [],
-    reply: greetingFor(language),
+    reply: greetingFor(language, purpose),
     replyIsReview: false,
     reviewedRevision: null,
     voiceReviewedRevision: null,
@@ -419,6 +421,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
         409,
       );
     if (
+      state.replyIsReview &&
       isConfirmation(turn.text) &&
       canConfirm(
         state,
@@ -540,12 +543,12 @@ conversationRoutes.all("/:id/:action?", async (c) => {
       };
       state.reply =
         result.kind === "reply"
-          ? operation.previous.reply
+          ? result.message
           : state.phase === "review"
             ? reviewText(state, result.language)
             : result.question ||
               clarificationText(state.draft, result.language);
-      state.replyIsReview = state.phase === "review";
+      state.replyIsReview = result.kind === "proposal" && state.phase === "review";
       state.processingSince = undefined;
       state.resumePhase = undefined;
       if (
@@ -573,7 +576,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
             },
           ] satisfies Conversation["messages"]
         ).slice(-60);
-      if (result.financeRelated)
+      if (result.kind === "proposal" || (result.kind === "reply" && "convention" in result && result.convention === true))
         await enqueueFinanceCapture(tx, {
           businessId: row.businessId,
           conversationId: id,
@@ -581,6 +584,7 @@ conversationRoutes.all("/:id/:action?", async (c) => {
           input: turn.text,
           output: result.kind === "reply" ? result.message : state.reply,
           requestId: turn.requestId,
+          convention: result.kind === "reply" && "convention" in result && result.convention === true,
         });
       const receipts = Object.fromEntries([
         ...Object.entries(receiptsSchema.parse(row.receipts)).slice(-31),

@@ -25,10 +25,10 @@ export const conversations = {
       z.object({ ok: z.boolean() }),
       options(session, data),
     ),
-  create: () =>
+  create: (purpose: "agent" | "record" = "agent") =>
     requestJson("/api/conversations", sessionSchema, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ purpose }),
     }),
   get: (session: RecordingSession) =>
     requestJson(

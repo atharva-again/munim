@@ -1,7 +1,9 @@
 import type { PreferredLanguage } from "@munim/contracts";
 const hindi: Readonly<Record<string, string>> = {
-  "Meko accepted this convention. Check the recalled facts below.": "दुकान की यह बात Meko ने स्वीकार कर ली है। नीचे याद की गई बातें देखें।",
-  "{count} updates delivered to Meko in the last 7 days. Conversation delivery does not confirm that a fact was extracted.": "पिछले 7 दिनों में Meko को {count} अपडेट मिले। बातचीत पहुँचने का मतलब यह नहीं कि उससे कोई बात याद हो गई है।",
+  "Tap the circle to ask about your books or record a transaction.": "हिसाब पूछने या लेन-देन लिखने के लिए गोले को दबाएँ।",
+  "Agent": "मुनीम",
+  "Ask about your books, or tell me about a transaction.": "अपने हिसाब के बारे में पूछें, या लेन-देन बताएँ।",
+  "Ask Munim…": "मुनीम से पूछें…",
   "Dues by Person": "किसका कितना बाकी है",
   "Across all recorded history. Names are grouped as recorded.": "सभी दर्ज हिसाब से। नाम जैसे लिखे हैं, वैसे ही जोड़े गए हैं।",
   "Entries": "एंट्रियाँ",
@@ -9,6 +11,9 @@ const hindi: Readonly<Record<string, string>> = {
   "Remaining": "बाकी रकम",
   "No outstanding balances in this direction.": "इस तरफ़ कोई रकम बाकी नहीं है।",
   "Showing {from}–{to} of {total} people": "{total} में से {from}–{to} नाम दिख रहे हैं",
+  "Meko accepted this convention. Check the recalled facts below.": "दुकान की यह बात Meko ने स्वीकार कर ली है। नीचे याद की गई बातें देखें।",
+  "{count} updates delivered to Meko in the last 7 days. Conversation delivery does not confirm that a fact was extracted.": "पिछले 7 दिनों में Meko को {count} अपडेट मिले। बातचीत पहुँचने का मतलब यह नहीं कि उससे कोई बात याद हो गई है।",
+
   "See How It Works": "देखें कैसे काम करता है",
   "You Say": "आप कहते हैं",
   "Munim Prepares": "मुनीम हिसाब बनाता है",
@@ -581,7 +586,7 @@ export function localizedError(message: string, status?: number): string {
         : translate(language, "Could not complete that request."))
     );
   if (status && status >= 500)
-    return translate(language, "Could not reach Munim. Please try again.");
+    return translate(language, "Could not complete that request.");
   if (status && status >= 400)
     return translate(language, "Check the entry and try again.");
   return message;

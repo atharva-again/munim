@@ -444,8 +444,8 @@ export default function VoiceSession({
   const communicating =
     connected && !muted && (userSpeaking || processing || speaking);
   return (
-    <section className="py-6 sm:py-9" aria-label={t("Voice Conversation")}>
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:gap-7">
+    <section className="flex min-h-0 flex-1 flex-col py-6 sm:py-9" aria-label={t("Voice Conversation")}>
+      <div className="grid min-h-[22rem] flex-1 grid-cols-1 content-center gap-8 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-10 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-12">
         <div className="flex shrink-0 flex-col items-center gap-3 self-center">
           <button
             type="button"
@@ -481,7 +481,7 @@ export default function VoiceSession({
           <p className="text-[11px] text-muted">{t(circleLabel)}</p>
         </div>
         <div
-          className="min-w-0 flex-1 rounded-3xl border border-line bg-soft px-5 py-5 sm:px-6"
+          className="min-w-0 py-3 sm:border-l sm:border-line sm:pl-8 lg:pl-12"
           aria-label={t("Current Conversation")}
         >
           <div className="flex items-center justify-between gap-3">
@@ -491,7 +491,7 @@ export default function VoiceSession({
               aria-live="polite"
             >
               {connected && <StatusDot tone={muted ? "warning" : "success"} />}
-              {t(title)}
+              <span className="text-sm">{t(title)}</span>
             </p>
             {communicating && (
               <span className="flex gap-1" aria-hidden="true">
@@ -502,39 +502,39 @@ export default function VoiceSession({
             )}
           </div>
           {started && (exchange.user || exchange.assistant) ? (
-            <div className="mt-4 grid gap-3">
+            <div className="mt-5 grid gap-5 lg:mt-8 lg:gap-7">
               {exchange.user && (
                 <div>
-                  <p className="text-[10px] text-muted">{t("You")}</p>
-                  <p className="mt-1 max-h-24 overflow-y-auto break-words text-sm leading-7">
+                  <p className="text-xs text-muted">{t("You")}</p>
+                  <p className="mt-2 max-h-32 overflow-y-auto break-words text-base leading-8 lg:text-lg">
                     {exchange.user}
                   </p>
                 </div>
               )}
               {exchange.assistant && (
                 <div>
-                  <p className="text-[10px] text-muted">{t("Munim")}</p>
-                  <p className="mt-1 max-h-32 overflow-y-auto break-words text-sm leading-7">
+                  <p className="text-xs text-muted">{t("Munim")}</p>
+                  <p className="mt-2 max-h-40 overflow-y-auto break-words text-base leading-8 lg:text-lg">
                     {exchange.assistant}
                   </p>
                 </div>
               )}
             </div>
           ) : (
-            <p className="mt-3 text-xs leading-6 text-muted">
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-muted">
               {t(
                 joining
                   ? helper
                   : started
                     ? "Tell me what happened. You can keep talking naturally."
-                    : "Tap the circle and tell Munim what happened.",
+                    : session.conversation.purpose === "agent" ? "Tap the circle to ask about your books or record a transaction." : "Tap the circle and tell Munim what happened.",
               )}
             </p>
           )}
         </div>
       </div>
       {joining && (
-        <div className="mt-6 flex justify-center sm:justify-start sm:pl-35">
+        <div className="mt-6 flex justify-center sm:justify-start sm:pl-[11.5rem] lg:pl-60">
           <button type="button" className={buttonClass} onClick={() => {
             setError("");
             setStarted(false);
@@ -545,7 +545,7 @@ export default function VoiceSession({
         </div>
       )}
       {connected && (
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-2 sm:justify-start sm:pl-35">
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2 sm:justify-start sm:pl-[11.5rem] lg:pl-60">
           <button
             type="button"
             className={
@@ -600,14 +600,14 @@ export default function VoiceSession({
         </div>
       )}
       {error && (
-        <p role="alert" className="mt-4 text-xs leading-6 text-status-red">
+        <p role="alert" className="mt-4 text-xs leading-6 text-status-red sm:pl-[11.5rem] lg:pl-60">
           {t(error)}
         </p>
       )}
       {(error || !session.voiceConfigured) && (
         <button
           type="button"
-          className={buttonClass + " mt-3"}
+          className={buttonClass + " mt-3 sm:ml-[11.5rem] lg:ml-60"}
           onClick={onChooseText}
         >
           <Keyboard size={14} />
@@ -617,7 +617,7 @@ export default function VoiceSession({
       {audioBlocked && connected && (
         <button
           type="button"
-          className={buttonClass + " mt-3"}
+          className={buttonClass + " mt-3 sm:ml-[11.5rem] lg:ml-60"}
           onClick={() =>
             void roomRef.current
               ?.startAudio()

@@ -24,7 +24,8 @@ export const languageLabels: Record<PreferredLanguage, string> = {
   en: "English",
   hi: "Hindi",
 };
-export function greetingFor(language: PreferredLanguage): string {
+export function greetingFor(language: PreferredLanguage, purpose: "agent" | "record" = "record"): string {
+  if (purpose === "agent") return language === "hi" ? "अपने हिसाब में क्या मदद चाहिए?" : "How can I help with your books?";
   return {
     en: "What would you like to record?",
     hi: "क्या हिसाब लिखना है?",
@@ -174,6 +175,7 @@ export const conversationSchema = z
     language: storedLanguageSchema.default("en"),
     replyLanguage: storedLanguageSchema.optional(),
     approvalMode: approvalModeSchema.default("approval"),
+    purpose: z.enum(["agent", "record"]).default("record"),
     id: z.string().uuid(),
     entryId: z.string().uuid().optional(),
     revision: z.number().int(),
